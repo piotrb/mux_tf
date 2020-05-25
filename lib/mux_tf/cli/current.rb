@@ -66,7 +66,7 @@ module MuxTf
           if remedies.delete? :init
             log 'Running terraform init ...', depth: 2
             tf_init
-            remedies = ::TfCurrent::PlanFormatter.process_validation(validate)
+            remedies = PlanFormatter.process_validation(validate)
             process_remedies(remedies)
           end
           unless remedies.empty?
