@@ -42,7 +42,7 @@ module MuxTf
       end
 
       def attach(name, cc: false)
-        tmux %(#{cc && '-CC'} attach -t #{name.inspect}), raise_on_error: false
+        tmux %(#{cc && '-CC' || ''} attach -t #{name.inspect}), raise_on_error: false
       end
 
       def kill_pane(pane_id)
