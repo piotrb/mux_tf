@@ -65,7 +65,7 @@ module MuxTf
             log "New version of #{Paint["mux_tf", :cyan]} is available!"
             log "You are currently on version: #{Paint[VersionCheck.current_gem_version, :yellow]}"
             log "Latest version found is: #{Paint[VersionCheck.latest_gem_version, :green]}"
-            log "Run `#{Paint["gem update muf_tf", :green]}` to update!"
+            log "Run `#{Paint["gem update mux_tf", :green]}` to update!"
             log Paint["="*80, :yellow]
           end
         end
