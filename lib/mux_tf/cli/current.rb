@@ -225,7 +225,7 @@ module MuxTf
 
         def interactive_cmd
           define_cmd('interactive', summary: 'Apply interactively') do |_opts, _args, _cmd|
-            status = run_shell(['tf-plan-summary', PLAN_FILENAME, '-i'], return_status: true)
+            status = run_shell([tf_plan_summrary_cmd, PLAN_FILENAME, '-i'], return_status: true)
             if status != 0
               log 'Interactive Apply Failed!'
             else
