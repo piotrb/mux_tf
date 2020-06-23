@@ -12,6 +12,8 @@ module MuxTf
 
       class << self
         def run(args)
+          version_check
+
           if args[0] == 'cli'
             cmd_loop
             return
@@ -56,6 +58,17 @@ module MuxTf
         end
 
       private
+
+        def version_check
+          if VersionCheck.has_updates?
+            log Paint["="*80, :yellow]
+            log "New version of #{Paint["mux_tf", :cyan]} is available!"
+            log "You are currently on version: #{Paint[VersionCheck.current_gem_version, :yellow]}"
+            log "Latest version found is: #{Paint[VersionCheck.latest_gem_version, :green]}"
+            log "Run `#{Paint["gem update muf_tf", :green]}` to update!"
+            log Paint["="*80, :yellow]
+          end
+        end
 
         def run_validate
           remedies = PlanFormatter.process_validation(validate)

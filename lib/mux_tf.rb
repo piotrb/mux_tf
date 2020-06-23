@@ -23,6 +23,8 @@ require_relative './mux_tf/cli'
 require_relative './mux_tf/tmux'
 require_relative './mux_tf/terraform_helpers'
 require_relative './mux_tf/plan_formatter'
+require_relative './mux_tf/version_check'
+require_relative './mux_tf/yaml_cache'
 
 module MuxTf
 end
