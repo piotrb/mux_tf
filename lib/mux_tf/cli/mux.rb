@@ -46,10 +46,12 @@ module MuxTf
 
           Tmux.set 'mouse', 'on'
 
+          window_id = Tmux.list_windows.first[:id]
+
           unless tasks.empty?
             tasks.each do |task|
               log "launching task: #{task[:name]} ...", depth: 2
-              Tmux.split_window :horizontal, "#{project}:1", cmd: task[:cmd], cwd: task[:cwd]
+              Tmux.split_window :horizontal, "#{project}:#{window_id}", cmd: task[:cmd], cwd: task[:cwd]
               Tmux.select_pane task[:name]
               Tmux.tile!
               task[:commands]&.each do |cmd|

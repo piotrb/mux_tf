@@ -21,6 +21,13 @@ module MuxTf
         panes.find { |pane| pane[:name] == name }
       end
 
+      def list_windows
+        `tmux list-windows -F "\#{window_id},\#{window_index},\#{window_name}"`.strip.split("\n").map do |row|
+          x = row.split(',')
+          { id: x[0], index: x[1], name: x[2] }
+        end
+      end
+
       def new_session(name)
         tmux %(new-session -s #{name.inspect} -d)
       end
