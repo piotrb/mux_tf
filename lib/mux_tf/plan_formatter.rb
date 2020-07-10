@@ -28,7 +28,7 @@ module MuxTf
         parser.state(:error_lock_info, /Lock Info/, [:error])
         parser.state(:error, /^$/, [:error_lock_info])
 
-        parser.state(:plan_error, /^Error: /, [:refreshing])
+        parser.state(:plan_error, /^Error: /, %i[refreshing refresh_done])
 
         status = tf_plan(out: filename, detailed_exitcode: true, compact_warnings: true) do |raw_line|
           plan_output << raw_line
