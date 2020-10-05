@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'shellwords'
+require "shellwords"
 
 module MuxTf
   module Tmux
@@ -14,17 +14,17 @@ module MuxTf
       end
 
       def find_pane(name)
-        panes = `tmux list-panes -F "\#{pane_id},\#{pane_title}"`.strip.split("\n").map do |row|
-          x = row.split(',')
-          return { id: x[0], name: x[1] }
-        end
+        panes = `tmux list-panes -F "\#{pane_id},\#{pane_title}"`.strip.split("\n").map { |row|
+          x = row.split(",")
+          return {id: x[0], name: x[1]}
+        }
         panes.find { |pane| pane[:name] == name }
       end
 
       def list_windows
         `tmux list-windows -F "\#{window_id},\#{window_index},\#{window_name}"`.strip.split("\n").map do |row|
-          x = row.split(',')
-          { id: x[0], index: x[1], name: x[2] }
+          x = row.split(",")
+          {id: x[0], index: x[1], name: x[2]}
         end
       end
 
@@ -45,11 +45,11 @@ module MuxTf
       end
 
       def tile!
-        tmux 'select-layout tiled'
+        tmux "select-layout tiled"
       end
 
       def attach(name, cc: false)
-        tmux %(#{cc && '-CC' || ''} attach -t #{name.inspect}), raise_on_error: false
+        tmux %(#{cc && "-CC" || ""} attach -t #{name.inspect}), raise_on_error: false
       end
 
       def kill_pane(pane_id)
@@ -64,21 +64,21 @@ module MuxTf
       def split_window(mode, target_pane, cwd: nil, cmd: nil)
         case mode
         when :horizontal
-          mode_part = '-h'
+          mode_part = "-h"
         when :vertical
-          mode_part = '-v'
+          mode_part = "-v"
         else
           raise ArgumentError, "invalid mode: #{mode.inspect}"
         end
 
         parts = [
-          'split-window',
+          "split-window",
           cwd && "-c #{cwd}",
           mode_part,
           "-t #{target_pane.inspect}",
           cmd&.inspect
         ].compact
-        tmux parts.join(' ')
+        tmux parts.join(" ")
       end
 
       private

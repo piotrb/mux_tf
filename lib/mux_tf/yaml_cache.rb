@@ -1,4 +1,4 @@
-require 'yaml/store'
+require "yaml/store"
 
 module MuxTf
   class YamlCache

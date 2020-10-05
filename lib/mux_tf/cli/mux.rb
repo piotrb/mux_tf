@@ -8,43 +8,43 @@ module MuxTf
 
       class << self
         def run(_args)
-          Dotenv.load('.env.mux')
+          Dotenv.load(".env.mux")
 
-          log 'Enumerating folders ...'
+          log "Enumerating folders ..."
           dirs = enumerate_terraform_dirs
 
-          fail_with 'Error: - no subfolders detected! Aborting.' if dirs.empty?
+          fail_with "Error: - no subfolders detected! Aborting." if dirs.empty?
 
-          tasks = dirs.map do |dir|
+          tasks = dirs.map { |dir|
             {
               name: dir,
               cwd: dir,
-              cmd: File.expand_path(File.join(__dir__, '..', '..', '..', 'exe', 'tf_current'))
+              cmd: File.expand_path(File.join(__dir__, "..", "..", "..", "exe", "tf_current"))
             }
-          end
+          }
 
           project = File.basename(Dir.getwd)
 
-          if ENV['MUX_TF_AUTH_WRAPPER']
-            log 'Warming up AWS connection ...'
-            words = Shellwords.shellsplit(ENV['MUX_TF_AUTH_WRAPPER'])
-            result = capture_shell([*words, 'aws', 'sts', 'get-caller-identity'], raise_on_error: true)
+          if ENV["MUX_TF_AUTH_WRAPPER"]
+            log "Warming up AWS connection ..."
+            words = Shellwords.shellsplit(ENV["MUX_TF_AUTH_WRAPPER"])
+            result = capture_shell([*words, "aws", "sts", "get-caller-identity"], raise_on_error: true)
             p JSON.parse(result)
           end
 
           if Tmux.session_running?(project)
-            log 'Killing existing session ...'
+            log "Killing existing session ..."
             Tmux.kill_session(project)
           end
 
-          log 'Starting new session ...'
+          log "Starting new session ..."
           Tmux.new_session project
-          Tmux.select_pane 'initial'
+          Tmux.select_pane "initial"
 
-          Tmux.set_hook 'pane-exited', 'select-layout tiled'
-          Tmux.set_hook 'window-pane-changed', 'select-layout tiled'
+          Tmux.set_hook "pane-exited", "select-layout tiled"
+          Tmux.set_hook "window-pane-changed", "select-layout tiled"
 
-          Tmux.set 'mouse', 'on'
+          Tmux.set "mouse", "on"
 
           window_id = Tmux.list_windows.first[:id]
 
@@ -60,17 +60,17 @@ module MuxTf
             end
           end
 
-          log 'Almost done ...'
+          log "Almost done ..."
 
-          initial_pane = Tmux.find_pane('initial')
+          initial_pane = Tmux.find_pane("initial")
           Tmux.kill_pane initial_pane[:id]
           Tmux.tile!
 
           puts "\e]0;tmux: #{project}\007"
 
-          log 'Attaching ...'
-          Tmux.attach(project, cc: !!ENV['MUXP_CC_MODE'])
-          log 'Done!'
+          log "Attaching ..."
+          Tmux.attach(project, cc: !!ENV["MUXP_CC_MODE"])
+          log "Done!"
         end
 
         private
@@ -78,9 +78,9 @@ module MuxTf
         def enumerate_terraform_dirs
           ignored = []
 
-          ignored += ENV['MUX_IGNORE'].split(',') if ENV['MUX_IGNORE']
+          ignored += ENV["MUX_IGNORE"].split(",") if ENV["MUX_IGNORE"]
 
-          dirs = Dir['**/*/.terraform'].map { |n| n.gsub(%r{/\.terraform}, '') }
+          dirs = Dir["**/*/.terraform"].map { |n| n.gsub(%r{/\.terraform}, "") }
           dirs.reject! { |d| d.in?(ignored) }
 
           dirs

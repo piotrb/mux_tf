@@ -30,7 +30,7 @@ module MuxTf
 
         parser.state(:plan_error, /^Error: /, %i[refreshing refresh_done])
 
-        status = tf_plan(out: filename, detailed_exitcode: true, compact_warnings: true) do |raw_line|
+        status = tf_plan(out: filename, detailed_exitcode: true, compact_warnings: true) { |raw_line|
           plan_output << raw_line
           parser.parse(raw_line.rstrip) do |state, line|
             case state
@@ -42,19 +42,19 @@ module MuxTf
               end
             when :info
               if /Acquiring state lock. This may take a few moments.../.match?(line)
-                log 'Acquiring state lock ...', depth: 2
+                log "Acquiring state lock ...", depth: 2
               else
                 p [state, line]
               end
             when :error
-              meta['error'] = 'lock'
+              meta["error"] = "lock"
               log Paint[line, :red], depth: 2
             when :plan_error
               if phase != :plan_error
                 puts
                 phase = :plan_error
               end
-              meta['error'] = 'refresh'
+              meta["error"] = "refresh"
               log Paint[line, :red], depth: 2
             when :error_lock_info
               if line =~ /^  ([^ ]+):\s+([^ ].+)$/
@@ -64,9 +64,9 @@ module MuxTf
             when :refreshing
               if phase != :refreshing
                 phase = :refreshing
-                log 'Refreshing state ', depth: 2, newline: false
+                log "Refreshing state ", depth: 2, newline: false
               else
-                print '.'
+                print "."
               end
             when :refresh_done
               if phase != :refresh_done
@@ -83,7 +83,7 @@ module MuxTf
               p [state, line]
             end
           end
-        end
+        }
         [status.status, meta]
       end
 
@@ -104,7 +104,7 @@ module MuxTf
 
         parser.state(:plugin_warnings, /^$/, [:plugins])
 
-        status = tf_init(upgrade: true, color: false) do |raw_line|
+        status = tf_init(upgrade: true, color: false) { |raw_line|
           plan_output << raw_line
           parser.parse(raw_line.rstrip) do |state, line|
             case state
@@ -112,19 +112,19 @@ module MuxTf
               if phase != state
                 # first line
                 phase = state
-                log 'Upgrding modules ', depth: 1, newline: false
+                log "Upgrding modules ", depth: 1, newline: false
                 next
               end
               case line
               when /^- (?<module>[^ ]+) in (?<path>.+)$/
                 # info = $~.named_captures
                 # log "- #{info["module"]}", depth: 2
-                print '.'
+                print "."
               when /^Downloading (?<repo>[^ ]+) (?<version>[^ ]+) for (?<module>[^ ]+)\.\.\./
                 # info = $~.named_captures
                 # log "Downloading #{info["module"]} from #{info["repo"]} @ #{info["version"]}"
-                print 'D'
-              when ''
+                print "D"
+              when ""
                 puts
               else
                 p [state, line]
@@ -133,11 +133,11 @@ module MuxTf
               if phase != state
                 # first line
                 phase = state
-                log 'Initializing the backend ', depth: 1, newline: false
+                log "Initializing the backend ", depth: 1, newline: false
                 next
               end
               case line
-              when ''
+              when ""
                 puts
               else
                 p [state, line]
@@ -146,14 +146,14 @@ module MuxTf
               if phase != state
                 # first line
                 phase = state
-                log 'Initializing provider plugins ...', depth: 1
+                log "Initializing provider plugins ...", depth: 1
                 next
               end
               case line
-              when /^- Downloading plugin for provider "(?<provider>[^\"]+)" \((?<provider_path>[^\)]+)\) (?<version>.+)\.\.\.$/
+              when /^- Downloading plugin for provider "(?<provider>[^"]+)" \((?<provider_path>[^)]+)\) (?<version>.+)\.\.\.$/
                 info = $LAST_MATCH_INFO.named_captures
-                log "- #{info['provider']} #{info['version']}", depth: 2
-              when '- Checking for available provider plugins...'
+                log "- #{info["provider"]} #{info["version"]}", depth: 2
+              when "- Checking for available provider plugins..."
                 # noop
               else
                 p [state, line]
@@ -170,7 +170,7 @@ module MuxTf
               p [state, line]
             end
           end
-        end
+        }
 
         [status.status, meta]
       end
@@ -178,20 +178,20 @@ module MuxTf
       def process_validation(info)
         remedies = Set.new
 
-        if info['error_count'] > 0 || info['warning_count'] > 0
-          log "Encountered #{Paint[info['error_count'], :red]} Errors and #{Paint[info['warning_count'], :yellow]} Warnings!", depth: 2
-          info['diagnostics'].each do |dinfo|
-            color = dinfo['severity'] == 'error' ? :red : :yellow
-            log "#{Paint[dinfo['severity'].capitalize, color]}: #{dinfo['summary']}", depth: 3
-            if dinfo['detail']&.include?('terraform init')
+        if info["error_count"] > 0 || info["warning_count"] > 0
+          log "Encountered #{Paint[info["error_count"], :red]} Errors and #{Paint[info["warning_count"], :yellow]} Warnings!", depth: 2
+          info["diagnostics"].each do |dinfo|
+            color = dinfo["severity"] == "error" ? :red : :yellow
+            log "#{Paint[dinfo["severity"].capitalize, color]}: #{dinfo["summary"]}", depth: 3
+            if dinfo["detail"]&.include?("terraform init")
               remedies << :init
             else
-              log dinfo['detail'], depth: 4 if dinfo['detail']
-              if dinfo['range']
-                log format_validation_range(dinfo['range'], color), depth: 4
+              log dinfo["detail"], depth: 4 if dinfo["detail"]
+              if dinfo["range"]
+                log format_validation_range(dinfo["range"], color), depth: 4
               end
 
-              remedies << :unknown if dinfo['severity'] == 'error'
+              remedies << :unknown if dinfo["severity"] == "error"
             end
           end
         end
@@ -214,17 +214,17 @@ module MuxTf
 
         context_lines = 3
 
-        lines = range['start']['line']..range['end']['line']
-        columns = range['start']['column']..range['end']['column']
+        lines = range["start"]["line"]..range["end"]["line"]
+        columns = range["start"]["column"]..range["end"]["column"]
 
         # on ../../../modules/pods/jane_pod/main.tf line 151, in module "jane":
         # 151:   jane_resources_preset = var.jane_resources_presetx
         output = []
         lines_info = lines.size == 1 ? "#{lines.first}:#{columns.first}" : "#{lines.first}:#{columns.first} to #{lines.last}:#{columns.last}"
-        output << "on: #{range['filename']} line#{lines.size > 1 ? 's' : ''}: #{lines_info}"
+        output << "on: #{range["filename"]} line#{lines.size > 1 ? "s" : ""}: #{lines_info}"
 
-        if File.exist?(range['filename'])
-          file_lines = File.read(range['filename']).split("\n")
+        if File.exist?(range["filename"])
+          file_lines = File.read(range["filename"]).split("\n")
           extract_range = ([lines.first - context_lines, 0].max)..([lines.last + context_lines, file_lines.length - 1].min)
           file_lines.each_with_index do |line, index|
             if extract_range.cover?(index + 1)
@@ -237,7 +237,7 @@ module MuxTf
                   start_col = columns.last
                 end
                 painted_line = paint_line(line, color, start_col: start_col, end_col: end_col)
-                output << "#{Paint['>', color]} #{index + 1}: #{painted_line}"
+                output << "#{Paint[">", color]} #{index + 1}: #{painted_line}"
               else
                 output << "  #{index + 1}: #{line}"
               end
