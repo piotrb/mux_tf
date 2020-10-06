@@ -89,7 +89,7 @@ module MuxTf
 
           puts "\e]0;tmux: #{project}\007"
 
-          sleep 5
+          sleep 1
 
           log "Attaching ..."
           Tmux.attach(project, cc: !!ENV["MUXP_CC_MODE"])
