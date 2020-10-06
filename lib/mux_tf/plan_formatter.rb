@@ -6,12 +6,8 @@ module MuxTf
     extend PiotrbCliUtils::Util
 
     class << self
-      # include CommandHelpers
-
       def pretty_plan(filename)
         pastel = Pastel.new
-
-        plan_output = String.new
 
         phase = :init
 
@@ -31,7 +27,6 @@ module MuxTf
         parser.state(:plan_error, /^Error: /, %i[refreshing refresh_done])
 
         status = tf_plan(out: filename, detailed_exitcode: true, compact_warnings: true) { |raw_line|
-          plan_output << raw_line
           parser.parse(raw_line.rstrip) do |state, line|
             case state
             when :none
@@ -87,10 +82,21 @@ module MuxTf
         [status.status, meta]
       end
 
-      def process_upgrade
-        pastel = Pastel.new
+      def init_status_to_remedies(status, meta)
+        remedies = Set.new
+        if status != 0
+          if meta[:need_reconfigure]
+            remedies << :reconfigure
+          else
+            p [status, meta]
+            remedies << :unknown
+          end
+        end
+        remedies
+      end
 
-        plan_output = String.new
+      def run_tf_init(upgrade: nil, reconfigure: nil)
+        pastel = Pastel.new
 
         phase = :init
 
@@ -98,24 +104,39 @@ module MuxTf
 
         parser = StatefulParser.new(normalizer: pastel.method(:strip))
 
-        parser.state(:modules, /^Upgrading modules\.\.\./)
-        parser.state(:backend, /^Initializing the backend\.\.\./, [:modules])
+        parser.state(:modules_init, /^Initializing modules\.\.\./)
+        parser.state(:modules_upgrade, /^Upgrading modules\.\.\./)
+        parser.state(:backend, /^Initializing the backend\.\.\./, [:modules_init, :modules_upgrade])
         parser.state(:plugins, /^Initializing provider plugins\.\.\./, [:backend])
 
         parser.state(:plugin_warnings, /^$/, [:plugins])
+        parser.state(:backend_error, /Error:/, [:backend])
 
-        status = tf_init(upgrade: true, color: false) { |raw_line|
-          plan_output << raw_line
+        status = tf_init(upgrade: upgrade, reconfigure: reconfigure) { |raw_line|
+          stripped_line = pastel.strip(raw_line.rstrip)
+
           parser.parse(raw_line.rstrip) do |state, line|
             case state
-            when :modules
+            when :modules_init
+              if phase != state
+                phase = state
+                log "Initializing modules ", depth: 1
+                next
+              end
+              case stripped_line
+              when ""
+                puts
+              else
+                p [state, stripped_line]
+              end
+            when :modules_upgrade
               if phase != state
                 # first line
                 phase = state
                 log "Upgrding modules ", depth: 1, newline: false
                 next
               end
-              case line
+              case stripped_line
               when /^- (?<module>[^ ]+) in (?<path>.+)$/
                 # info = $~.named_captures
                 # log "- #{info["module"]}", depth: 2
@@ -127,7 +148,7 @@ module MuxTf
               when ""
                 puts
               else
-                p [state, line]
+                p [state, stripped_line]
               end
             when :backend
               if phase != state
@@ -136,11 +157,20 @@ module MuxTf
                 log "Initializing the backend ", depth: 1, newline: false
                 next
               end
-              case line
+              case stripped_line
+              when /^Successfully configured/
+                log line, depth: 2
+              when /unless the backend/
+                log line, depth: 2
               when ""
                 puts
               else
-                p [state, line]
+                p [state, stripped_line]
+              end
+            when :backend_error
+              if raw_line.match "terraform init -reconfigure"
+                meta[:need_reconfigure] = true
+                log Paint["module needs to be reconfigured", :red], depth: 2
               end
             when :plugins
               if phase != state
@@ -149,7 +179,25 @@ module MuxTf
                 log "Initializing provider plugins ...", depth: 1
                 next
               end
-              case line
+              case stripped_line
+              when /^- (?<module>.+) is built in to Terraform$/
+                info = $LAST_MATCH_INFO.named_captures
+                log "- [BUILTIN] #{info["module"]}", depth: 2
+              when /^- Finding (?<module>[^ ]+) versions matching "(?<version>.+)"\.\.\./
+                info = $LAST_MATCH_INFO.named_captures
+                log "- [FIND] #{info["module"]} matching #{info["version"].inspect}", depth: 2
+              when /^- Finding latest version of (?<module>.+)\.\.\.$/
+                info = $LAST_MATCH_INFO.named_captures
+                log "- [FIND] #{info["module"]}", depth: 2
+              when /^- Installing (?<module>[^ ]+) v(?<version>.+)\.\.\.$/
+                info = $LAST_MATCH_INFO.named_captures
+                log "- [INSTALLING] #{info["module"]} v#{info["version"]}", depth: 2
+              when /^- Installed (?<module>[^ ]+) v(?<version>.+) \(signed by( a)? (?<signed>.+)\)$/
+                info = $LAST_MATCH_INFO.named_captures
+                log "- [INSTALLED] #{info["module"]} v#{info["version"]} (#{info["signed"]})", depth: 2
+              when /^- Using previously-installed (?<module>[^ ]+) v(?<version>.+)$/
+                info = $LAST_MATCH_INFO.named_captures
+                log "- [USING] #{info["module"]} v#{info["version"]}", depth: 2
               when /^- Downloading plugin for provider "(?<provider>[^"]+)" \((?<provider_path>[^)]+)\) (?<version>.+)\.\.\.$/
                 info = $LAST_MATCH_INFO.named_captures
                 log "- #{info["provider"]} #{info["version"]}", depth: 2

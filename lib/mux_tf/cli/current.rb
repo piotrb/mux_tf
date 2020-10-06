@@ -80,9 +80,16 @@ module MuxTf
         def process_remedies(remedies)
           if remedies.delete? :init
             log "Running terraform init ...", depth: 2
-            tf_init
-            remedies = PlanFormatter.process_validation(validate)
-            process_remedies(remedies)
+            remedies = PlanFormatter.init_status_to_remedies(*PlanFormatter.run_tf_init)
+            if process_remedies(remedies)
+              remedies = PlanFormatter.process_validation(validate)
+              return false unless process_remedies(remedies)
+            end
+          end
+          if remedies.delete? :reconfigure
+            log "Running terraform init ...", depth: 2
+            remedies = PlanFormatter.init_status_to_remedies(*PlanFormatter.run_tf_init(reconfigure: true))
+            return false unless process_remedies(remedies)
           end
           unless remedies.empty?
             log "unprocessed remedies: #{remedies.to_a}", depth: 1
@@ -154,6 +161,7 @@ module MuxTf
           root_cmd.add_command(shell_cmd)
           root_cmd.add_command(force_unlock_cmd)
           root_cmd.add_command(upgrade_cmd)
+          root_cmd.add_command(reconfigure_cmd)
           root_cmd.add_command(interactive_cmd)
 
           root_cmd.add_command(exit_cmd)
@@ -238,6 +246,16 @@ module MuxTf
           end
         end
 
+        def reconfigure_cmd
+          define_cmd("reconfigure", summary: "Reconfigure modules/plguins") do |_opts, _args, _cmd|
+            status, meta = PlanFormatter.run_tf_init(reconfigure: true)
+            if status != 0
+              log meta.inspect unless meta.empty?
+              log "Reconfigure Failed!"
+            end
+          end
+        end
+
         def interactive_cmd
           define_cmd("interactive", summary: "Apply interactively") do |_opts, _args, _cmd|
             plan = PlanSummaryHandler.from_file(PLAN_FILENAME)
@@ -274,7 +292,7 @@ module MuxTf
         end
 
         def run_upgrade
-          exit_code, meta = PlanFormatter.process_upgrade
+          exit_code, meta = PlanFormatter.run_tf_init(upgrade: true)
           case exit_code
           when 0
             [:ok, meta]

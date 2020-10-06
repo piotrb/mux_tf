@@ -26,10 +26,11 @@ module MuxTf
       capture_terraform(cmd, json: true)
     end
 
-    def tf_init(input: nil, upgrade: nil, color: true, &block)
+    def tf_init(input: nil, upgrade: nil, reconfigure: nil, color: true, &block)
       args = []
       args << "-input=#{input.inspect}" unless input.nil?
       args << "-upgrade" unless upgrade.nil?
+      args << "-reconfigure" unless reconfigure.nil?
       args << "-no-color" unless color
 
       cmd = tf_prepare_command(["init", *args], need_auth: true)
