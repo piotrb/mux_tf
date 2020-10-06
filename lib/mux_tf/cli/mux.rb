@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "bundler"
+
 module MuxTf
   module Cli
     module Mux
@@ -7,6 +9,21 @@ module MuxTf
       extend PiotrbCliUtils::ShellHelpers
 
       class << self
+        def with_clean_env
+          backup = {}
+          Bundler.with_original_env do
+            ENV.keys.grep(/^(RBENV_|RUBYLIB)/).each do |key|
+              backup[key] = ENV[key]
+              ENV.delete(key)
+            end
+            yield
+          end
+        ensure
+          backup.each do |k, v|
+            ENV[k] = v
+          end
+        end
+
         def run(_args)
           Dotenv.load(".env.mux")
 
@@ -38,8 +55,12 @@ module MuxTf
           end
 
           log "Starting new session ..."
-          Tmux.new_session project
+          with_clean_env do
+            Tmux.new_session project
+          end
           Tmux.select_pane "initial"
+
+          # Tmux.set "remain-on-exit", "on"
 
           Tmux.set_hook "pane-exited", "select-layout tiled"
           Tmux.set_hook "window-pane-changed", "select-layout tiled"
@@ -67,6 +88,8 @@ module MuxTf
           Tmux.tile!
 
           puts "\e]0;tmux: #{project}\007"
+
+          sleep 5
 
           log "Attaching ..."
           Tmux.attach(project, cc: !!ENV["MUXP_CC_MODE"])

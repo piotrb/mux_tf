@@ -177,7 +177,7 @@ module MuxTf
       resource, parent_address = find_config(data["configuration"], "root_module", address, [])
       if resource
         deps = []
-        resource["expressions"].each do |_k, v|
+        resource["expressions"]&.each do |_k, v|
           deps << v["references"] if v.is_a?(Hash) && v["references"]
         end
         result += deps.map { |s| (parent_address + [s]).join(".") }

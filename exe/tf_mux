@@ -1,8 +1,15 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-$LOAD_PATH << File.expand_path(File.join(__dir__, '..', 'lib'))
+begin
+  $LOAD_PATH << File.expand_path(File.join(__dir__, "..", "lib"))
 
-require 'mux_tf'
+  require "mux_tf"
 
-MuxTf::Cli.run(:mux, ARGV)
+  MuxTf::Cli.run(:mux, ARGV)
+rescue Exception => e
+  warn e.full_message
+  warn "<press enter>"
+  gets
+  exit 1
+end
