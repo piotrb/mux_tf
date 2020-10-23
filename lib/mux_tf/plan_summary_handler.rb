@@ -3,6 +3,7 @@
 module MuxTf
   class PlanSummaryHandler
     extend TerraformHelpers
+    extend PiotrbCliUtils::Util
 
     def self.from_file(file)
       data = data_from_file(file)
