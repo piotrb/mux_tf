@@ -178,7 +178,8 @@ module MuxTf
           define_cmd("apply", summary: "Apply the current plan") do |_opts, _args, _cmd|
             status = tf_apply(filename: PLAN_FILENAME)
             if status.success?
-              throw :stop, :done
+              plan_status = run_plan
+              throw :stop, :done if plan_status == :ok
             else
               log "Apply Failed!"
             end
@@ -289,6 +290,7 @@ module MuxTf
           when :unknown
             # nothing
           end
+          plan_status
         end
 
         def run_upgrade
