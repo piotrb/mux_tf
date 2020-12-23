@@ -126,6 +126,10 @@ module MuxTf
                 next
               end
               case stripped_line
+              when /^Downloading (?<repo>[^ ]+) (?<version>[^ ]+) for (?<module>[^ ]+)\.\.\./
+                print "D"
+              when /^- (?<module>[^ ]+) in (?<path>.+)$/
+                print "."
               when ""
                 puts
               else
@@ -182,6 +186,9 @@ module MuxTf
                 next
               end
               case stripped_line
+              when /^- Reusing previous version of (?<module>.+) from the dependency lock file$/
+                info = $LAST_MATCH_INFO.named_captures
+                log "- [FROM-LOCK] #{info["module"]}", depth: 2
               when /^- (?<module>.+) is built in to Terraform$/
                 info = $LAST_MATCH_INFO.named_captures
                 log "- [BUILTIN] #{info["module"]}", depth: 2
