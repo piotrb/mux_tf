@@ -12,6 +12,7 @@ require "open3"
 require "piotrb_cli_utils"
 require "stateful_parser"
 
+require "active_support/dependencies/autoload"
 require "active_support/core_ext"
 
 require "paint"

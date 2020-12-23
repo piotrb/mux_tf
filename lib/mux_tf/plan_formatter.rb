@@ -16,8 +16,10 @@ module MuxTf
         parser = StatefulParser.new(normalizer: pastel.method(:strip))
         parser.state(:info, /^Acquiring state lock/)
         parser.state(:error, /Error locking state/, %i[none blank info])
+        parser.state(:refreshing, /^.+: Refreshing state... \[id=/, %i[none])
         parser.state(:refreshing, /Refreshing Terraform state in-memory prior to plan.../, %i[none blank info])
         parser.state(:refresh_done, /^----------+$/, [:refreshing])
+        parser.state(:refresh_done, /^$/, [:refreshing])
         parser.state(:plan_info, /Terraform will perform the following actions:/, [:refresh_done])
         parser.state(:plan_summary, /^Plan:/, [:plan_info])
 
@@ -75,7 +77,7 @@ module MuxTf
             when :plan_summary
               log line, depth: 2
             else
-              p [state, line]
+              p [state, pastel.strip(line)]
             end
           end
         }
