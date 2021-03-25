@@ -16,7 +16,7 @@ module MuxTf
         parser = StatefulParser.new(normalizer: pastel.method(:strip))
         parser.state(:info, /^Acquiring state lock/)
         parser.state(:error, /Error locking state/, %i[none blank info])
-        parser.state(:refreshing, /^.+: Refreshing state... \[id=/, %i[none])
+        parser.state(:refreshing, /^.+: Refreshing state... \[id=/, %i[none info])
         parser.state(:refreshing, /Refreshing Terraform state in-memory prior to plan.../, %i[none blank info])
         parser.state(:refresh_done, /^----------+$/, [:refreshing])
         parser.state(:refresh_done, /^$/, [:refreshing])
