@@ -6,7 +6,7 @@ module MuxTf
     extend PiotrbCliUtils::Util
 
     class << self
-      def pretty_plan(filename)
+      def pretty_plan(filename, targets: [])
         pastel = Pastel.new
 
         phase = :init
@@ -28,7 +28,7 @@ module MuxTf
 
         parser.state(:plan_error, /^Error: /, %i[refreshing refresh_done])
 
-        status = tf_plan(out: filename, detailed_exitcode: true, compact_warnings: true) { |raw_line|
+        status = tf_plan(out: filename, detailed_exitcode: true, compact_warnings: true, targets: targets) { |raw_line|
           parser.parse(raw_line.rstrip) do |state, line|
             case state
             when :none

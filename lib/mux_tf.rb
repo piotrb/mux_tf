@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "./deps"
-
 require "English"
 
 require "shellwords"
@@ -22,6 +20,7 @@ require "tty-table"
 require "dotenv"
 
 require_relative "./mux_tf/version"
+require_relative "./mux_tf/resource_tokenizer"
 require_relative "./mux_tf/cli"
 require_relative "./mux_tf/tmux"
 require_relative "./mux_tf/terraform_helpers"

@@ -103,9 +103,9 @@ module MuxTf
           tf_validate.parsed_output
         end
 
-        def create_plan(filename)
+        def create_plan(filename, targets: [])
           log "Preparing Plan ...", depth: 1
-          exit_code, meta = PlanFormatter.pretty_plan(filename)
+          exit_code, meta = PlanFormatter.pretty_plan(filename, targets: targets)
           case exit_code
           when 0
             [:ok, meta]
@@ -276,8 +276,8 @@ module MuxTf
           end
         end
 
-        def run_plan
-          plan_status, @plan_meta = create_plan(PLAN_FILENAME)
+        def run_plan(targets: [])
+          plan_status, @plan_meta = create_plan(PLAN_FILENAME, targets: targets)
 
           case plan_status
           when :ok

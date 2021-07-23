@@ -2,8 +2,9 @@
 # frozen_string_literal: true
 
 begin
-  $LOAD_PATH << File.expand_path(File.join(__dir__, "..", "lib"))
+  $LOAD_PATH.unshift File.expand_path(File.join(__dir__, "..", "lib"))
 
+  require "deps"
   require "mux_tf"
 
   MuxTf::Cli.run(:plan_summary, ARGV)

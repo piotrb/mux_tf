@@ -6,6 +6,8 @@ module MuxTf
     include TerraformHelpers
     include PiotrbCliUtils::Util
 
+    PLAN_FILENAME = "foo.tfplan"
+
     def self.from_file(file)
       data = data_from_file(file)
       new data
@@ -137,11 +139,7 @@ module MuxTf
 
       if !result.empty?
         log "Re-running apply with the selected resources ..."
-        status = tf_apply(targets: result)
-        unless status.success?
-          log Paint["Failed! (#{status.status})", :red]
-          throw :abort, "Apply Failed! #{status.status}"
-        end
+        run_plan(targets: result)
       else
         throw :abort, "nothing selected"
       end
@@ -150,6 +148,48 @@ module MuxTf
     private
 
     attr_reader :parts
+
+    def create_plan(filename, targets: [])
+      log "Preparing Plan ...", depth: 1
+      exit_code, meta = PlanFormatter.pretty_plan(filename, targets: targets)
+      case exit_code
+      when 0
+        [:ok, meta]
+      when 1
+        [:error, meta]
+      when 2
+        [:changes, meta]
+      else
+        log Paint["terraform plan exited with an unknown exit code: #{exit_code}", :yellow]
+        [:unknown, meta]
+      end
+    end
+
+    def run_plan(targets: [])
+      plan_status, @plan_meta = create_plan(PLAN_FILENAME, targets: targets)
+
+      case plan_status
+      when :ok
+        log "no changes", depth: 1
+      when :error
+        log "something went wrong", depth: 1
+      when :changes
+        log "Printing Plan Summary ...", depth: 1
+        pretty_plan_summary(PLAN_FILENAME)
+      when :unknown
+        # nothing
+      end
+      plan_status
+    end
+
+    def pretty_plan_summary(filename)
+      plan = PlanSummaryHandler.from_file(filename)
+      plan.flat_summary.each do |line|
+        log line, depth: 2
+      end
+      log "", depth: 2
+      log plan.summary, depth: 2
+    end
 
     def prune_unchanged_deps(parts)
       valid_addresses = parts.map { |part| part[:address] }
@@ -250,11 +290,21 @@ module MuxTf
     end
 
     def format_address(address)
-      parts = address.split(".")
-      parts.each_with_index do |part, index|
-        parts[index] = Paint[part, :cyan] if index.odd?
+      result = []
+      parts = ResourceTokenizer.tokenize(address)
+      parts.each_with_index do |(part_type, part_value), index|
+        case part_type
+        when :rt
+          result << "." if index > 0
+          result << Paint[part_value, :cyan]
+        when :rn
+          result << "."
+          result << part_value
+        when :ri
+          result << Paint[part_value, :green]
+        end
       end
-      parts.join(".")
+      result.join
     end
   end
 end

@@ -37,13 +37,18 @@ module MuxTf
       stream_or_run_terraform(cmd, &block)
     end
 
-    def tf_plan(out:, color: true, detailed_exitcode: nil, compact_warnings: false, input: nil, &block)
+    def tf_plan(out:, color: true, detailed_exitcode: nil, compact_warnings: false, input: nil, targets: [], &block)
       args = []
       args += ["-out", out]
       args << "-input=#{input.inspect}" unless input.nil?
       args << "-compact-warnings" if compact_warnings
       args << "-no-color" unless color
       args << "-detailed-exitcode" if detailed_exitcode
+      if targets && !targets.empty?
+        targets.each do |target|
+          args << "-target=#{target}"
+        end
+      end
 
       cmd = tf_prepare_command(["plan", *args], need_auth: true)
       stream_or_run_terraform(cmd, &block)
@@ -73,7 +78,7 @@ module MuxTf
     end
 
     def stream_or_run_terraform(args, &block)
-      if block_given?
+      if block
         stream_terraform(args, &block)
       else
         run_terraform(args)
