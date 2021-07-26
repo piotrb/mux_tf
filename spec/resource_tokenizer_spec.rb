@@ -67,5 +67,23 @@ RSpec.describe ResourceTokenizer do
         expect(result).to eq(expected)
       end
     end
+
+    context do
+      let(:input) { %(module.pod.module.jane.datadog_monitor.redis_event) }
+      let(:expected) {
+        [
+          [:rt, "module"],
+          [:rn, "pod"],
+          [:rt, "module"],
+          [:rn, "jane"],
+          [:rt, "datadog_monitor"],
+          [:rn, "redis_event"]
+        ]
+      }
+
+      example do
+        expect(result).to eq(expected)
+      end
+    end
   end
 end

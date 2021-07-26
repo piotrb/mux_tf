@@ -32,6 +32,13 @@ class ResourceTokenizer
           pn = n
           state = :ri
         end
+        if n == resource.length - 1
+          # last character .. close the current group
+          # the last thing should only ever be an index or a name
+          result << [:rn, resource[pn..n]]
+          pn = n
+          state = :done
+        end
       when :ri
         # looking for ]
         if resource[n] == "]"
