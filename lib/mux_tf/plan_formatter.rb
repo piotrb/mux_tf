@@ -20,7 +20,7 @@ module MuxTf
         parser.state(:refreshing, /Refreshing Terraform state in-memory prior to plan.../, %i[none blank info])
         parser.state(:refresh_done, /^----------+$/, [:refreshing])
         parser.state(:refresh_done, /^$/, [:refreshing])
-        parser.state(:plan_info, /Terraform will perform the following actions:/, [:refresh_done])
+        parser.state(:plan_info, /Terraform will perform the following actions:/, [:refresh_done, :none])
         parser.state(:plan_summary, /^Plan:/, [:plan_info])
 
         parser.state(:error_lock_info, /Lock Info/, [:error])
