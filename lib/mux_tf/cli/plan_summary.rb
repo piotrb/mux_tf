@@ -49,6 +49,9 @@ module MuxTf
               plan.flat_summary.each do |line|
                 puts line
               end
+              plan.output_summary.each do |line|
+                puts line
+              end
             end
             puts
             puts plan.summary

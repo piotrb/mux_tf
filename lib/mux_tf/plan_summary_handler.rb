@@ -32,77 +32,174 @@ module MuxTf
     def initialize(data)
       @parts = []
 
-      data["resource_changes"].each do |v|
-        next unless v["change"]
+      if data["output_changes"]
+        data["output_changes"].each do |output_name, v|
+          case v["actions"]
+          when ["no-op"]
+            # do nothing
+          when ["create"]
+            parts << {
+              type: "output",
+              action: "create",
+              after_unknown: v["after_unknown"],
+              sensitive: [v["before_sensitive"], v["after_sensitive"]],
+              address: output_name
+            }
+          when ["update"]
+            parts << {
+              type: "output",
+              action: "update",
+              after_unknown: v["after_unknown"],
+              sensitive: [v["before_sensitive"], v["after_sensitive"]],
+              address: output_name
+            }
+          when ["delete"]
+            parts << {
+              type: "output",
+              action: "delete",
+              after_unknown: v["after_unknown"],
+              sensitive: [v["before_sensitive"], v["after_sensitive"]],
+              address: output_name
+            }
+          else
+            puts "[??] #{output_name}"
+            puts "UNKNOWN ACTIONS: #{v["actions"].inspect}"
+            puts "TODO: update plan_summary to support this!"
+          end
+        end
+      end
 
-        case v["change"]["actions"]
-        when ["no-op"]
-          # do nothing
-        when ["create"]
-          parts << {
-            action: "create",
-            address: v["address"],
-            deps: find_deps(data, v["address"])
-          }
-        when ["update"]
-          parts << {
-            action: "update",
-            address: v["address"],
-            deps: find_deps(data, v["address"])
-          }
-        when ["delete"]
-          parts << {
-            action: "delete",
-            address: v["address"],
-            deps: find_deps(data, v["address"])
-          }
-        when %w[delete create]
-          parts << {
-            action: "replace",
-            address: v["address"],
-            deps: find_deps(data, v["address"])
-          }
-        when ["read"]
-          parts << {
-            action: "read",
-            address: v["address"],
-            deps: find_deps(data, v["address"])
-          }
-        else
-          puts "[??] #{v["address"]}"
-          puts "UNKNOWN ACTIONS: #{v["change"]["actions"].inspect}"
-          puts "TODO: update plan_summary to support this!"
+      if data["resource_changes"]
+        data["resource_changes"].each do |v|
+          next unless v["change"]
+
+          case v["change"]["actions"]
+          when ["no-op"]
+            # do nothing
+          when ["create"]
+            parts << {
+              type: "resource",
+              action: "create",
+              address: v["address"],
+              deps: find_deps(data, v["address"])
+            }
+          when ["update"]
+            parts << {
+              type: "resource",
+              action: "update",
+              address: v["address"],
+              deps: find_deps(data, v["address"])
+            }
+          when ["delete"]
+            parts << {
+              type: "resource",
+              action: "delete",
+              address: v["address"],
+              deps: find_deps(data, v["address"])
+            }
+          when %w[delete create]
+            parts << {
+              type: "resource",
+              action: "replace",
+              address: v["address"],
+              deps: find_deps(data, v["address"])
+            }
+          when ["read"]
+            parts << {
+              type: "resource",
+              action: "read",
+              address: v["address"],
+              deps: find_deps(data, v["address"])
+            }
+          else
+            puts "[??] #{v["address"]}"
+            puts "UNKNOWN ACTIONS: #{v["change"]["actions"].inspect}"
+            puts "TODO: update plan_summary to support this!"
+          end
         end
       end
 
       prune_unchanged_deps(parts)
     end
 
+    def resource_parts
+      parts.select { |part| part[:type] == "resource" }
+    end
+
+    def output_parts
+      parts.select { |part| part[:type] == "output" }
+    end
+
     def summary
-      summary = {}
-      parts.each do |part|
-        summary[part[:action]] ||= 0
-        summary[part[:action]] += 1
+      # resources
+      resource_summary = {}
+      resource_parts.each do |part|
+        resource_summary[part[:action]] ||= 0
+        resource_summary[part[:action]] += 1
       end
-      pieces = summary.map { |k, v|
+      resource_pieces = resource_summary.map { |k, v|
         color = color_for_action(k)
         "#{Paint[v, :yellow]} to #{Paint[k, color]}"
       }
 
-      "Plan Summary: #{pieces.join(Paint[", ", :gray])}"
+      # outputs
+      output_summary = {}
+      output_parts.each do |part|
+        output_summary[part[:action]] ||= 0
+        output_summary[part[:action]] += 1
+      end
+      output_pieces = output_summary.map { |k, v|
+        color = color_for_action(k)
+        "#{Paint[v, :yellow]} to #{Paint[k, color]}"
+      }
+
+      if resource_pieces.any? || output_pieces.any?
+        [
+          "Plan Summary:",
+          resource_pieces.any? ? resource_pieces.join(Paint[", ", :gray]) : nil,
+          output_pieces.any? ? "Outputs: #{output_pieces.join(Paint[", ", :gray])}" : nil
+        ].compact.join(" ")
+      else
+        "Plan Summary: no changes"
+      end
     end
 
     def flat_summary
       result = []
-      parts.each do |part|
+      resource_parts.each do |part|
         result << "[#{format_action(part[:action])}] #{format_address(part[:address])}"
+      end
+      result
+    end
+
+    def sensitive_summary(bv, av)
+      # before vs after
+      if bv && av
+        "(#{Paint["sensitive", :yellow]})"
+      elsif bv
+        "(#{Paint["-sensitive", :red]})"
+      elsif av
+        "(#{Paint["+sensitive", :cyan]})"
+      end
+    end
+
+    def output_summary
+      result = []
+      output_parts.each do |part|
+        pieces = [
+          "[#{format_action(part[:action])}]",
+          format_address("output.#{part[:address]}"),
+          part[:after_unknown] ? "(unknown)" : nil,
+          sensitive_summary(*part[:sensitive])
+        ].compact
+        result << pieces.join(" ")
       end
       result
     end
 
     def nested_summary
       result = []
-      parts = parts.deep_dup
+      parts = resource_parts.deep_dup
       until parts.empty?
         part = parts.shift
         if part[:deps] == []
@@ -131,7 +228,7 @@ module MuxTf
     def run_interactive
       prompt = TTY::Prompt.new
       result = prompt.multi_select("Update resources:", per_page: 99, echo: false) { |menu|
-        parts.each do |part|
+        resource_parts.each do |part|
           label = "[#{format_action(part[:action])}] #{format_address(part[:address])}"
           menu.choice label, part[:address]
         end
@@ -187,14 +284,17 @@ module MuxTf
       plan.flat_summary.each do |line|
         log line, depth: 2
       end
+      plan.output_summary.each do |line|
+        log line, depth: 2
+      end
       log "", depth: 2
       log plan.summary, depth: 2
     end
 
     def prune_unchanged_deps(parts)
-      valid_addresses = parts.map { |part| part[:address] }
+      valid_addresses = resource_parts.map { |part| part[:address] }
 
-      parts.each do |part|
+      resource_parts.each do |part|
         part[:deps].select! { |dep| valid_addresses.include?(dep) }
       end
     end

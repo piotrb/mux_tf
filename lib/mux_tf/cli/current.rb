@@ -313,6 +313,9 @@ module MuxTf
           plan.flat_summary.each do |line|
             log line, depth: 2
           end
+          plan.output_summary.each do |line|
+            log line, depth: 2
+          end
           log "", depth: 2
           log plan.summary, depth: 2
         end
