@@ -128,6 +128,8 @@ module MuxTf
               case stripped_line
               when /^Downloading (?<repo>[^ ]+) (?<version>[^ ]+) for (?<module>[^ ]+)\.\.\./
                 print "D"
+              when /^Downloading (?<repo>[^ ]+) for (?<module>[^ ]+)\.\.\./
+                print "D"
               when /^- (?<module>[^ ]+) in (?<path>.+)$/
                 print "."
               when ""
@@ -144,12 +146,10 @@ module MuxTf
               end
               case stripped_line
               when /^- (?<module>[^ ]+) in (?<path>.+)$/
-                # info = $~.named_captures
-                # log "- #{info["module"]}", depth: 2
                 print "."
               when /^Downloading (?<repo>[^ ]+) (?<version>[^ ]+) for (?<module>[^ ]+)\.\.\./
-                # info = $~.named_captures
-                # log "Downloading #{info["module"]} from #{info["repo"]} @ #{info["version"]}"
+                print "D"
+              when /^Downloading (?<repo>[^ ]+) for (?<module>[^ ]+)\.\.\./
                 print "D"
               when ""
                 puts
