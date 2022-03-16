@@ -108,7 +108,7 @@ module MuxTf
 
         parser.state(:modules_init, /^Initializing modules\.\.\./)
         parser.state(:modules_upgrade, /^Upgrading modules\.\.\./)
-        parser.state(:backend, /^Initializing the backend\.\.\./, [:modules_init, :modules_upgrade])
+        parser.state(:backend, /^Initializing the backend\.\.\./, [:none, :modules_init, :modules_upgrade])
         parser.state(:plugins, /^Initializing provider plugins\.\.\./, [:backend])
 
         parser.state(:plugin_warnings, /^$/, [:plugins])
@@ -223,6 +223,9 @@ module MuxTf
               end
 
               log Paint[line, :yellow], depth: 1
+            when :none
+              next if line == ""
+              p [state, line]
             else
               p [state, line]
             end
