@@ -242,6 +242,8 @@ module MuxTf
             log "#{Paint[dinfo["severity"].capitalize, color]}: #{dinfo["summary"]}", depth: 3
             if dinfo["detail"]&.include?("terraform init")
               remedies << :init
+            elsif /there is no package for .+ cached in/.match?(dinfo["summary"])
+              remedies << :init
             else
               log dinfo["detail"], depth: 4 if dinfo["detail"]
               if dinfo["range"]
