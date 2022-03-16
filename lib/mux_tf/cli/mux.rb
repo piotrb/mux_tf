@@ -103,7 +103,7 @@ module MuxTf
 
           ignored += ENV["MUX_IGNORE"].split(",") if ENV["MUX_IGNORE"]
 
-          dirs = Dir["**/*/.terraform"].map { |n| n.gsub(%r{/\.terraform}, "") }
+          dirs = Dir["**/.terraform.lock.hcl"].map { |f| File.dirname(f) }
           dirs.reject! { |d| d.in?(ignored) }
 
           dirs
