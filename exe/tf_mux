@@ -11,6 +11,6 @@ begin
 rescue Exception => e
   warn e.full_message
   warn "<press enter>"
-  gets
+  $stdin.gets
   exit 1
 end
