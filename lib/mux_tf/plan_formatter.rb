@@ -54,7 +54,7 @@ module MuxTf
               meta["error"] = "refresh"
               log Paint[line, :red], depth: 2
             when :error_lock_info
-              if line =~ /^  ([^ ]+):\s+([^ ].+)$/
+              if line =~ /([A-Z]+[\S]+)+:\s+(.+)$/
                 meta[$LAST_MATCH_INFO[1]] = $LAST_MATCH_INFO[2]
               end
               log Paint[line, :red], depth: 2
