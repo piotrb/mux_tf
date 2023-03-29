@@ -15,9 +15,10 @@ module MuxTf
 
         parser = StatefulParser.new(normalizer: pastel.method(:strip))
         parser.state(:info, /^Acquiring state lock/)
-        parser.state(:error, /(╷|Error locking state|Error:)/, %i[none blank info])
-        parser.state(:refreshing, /^.+: Refreshing state... \[id=/, %i[none info])
-        parser.state(:refreshing, /Refreshing Terraform state in-memory prior to plan.../, %i[none blank info])
+        parser.state(:error, /(╷|Error locking state|Error:)/, %i[none blank info reading])
+        parser.state(:reading, /: (Reading...|Read complete after)/, %i[none info])
+        parser.state(:refreshing, /^.+: Refreshing state... \[id=/, %i[none info reading])
+        parser.state(:refreshing, /Refreshing Terraform state in-memory prior to plan.../, %i[none blank info reading])
         parser.state(:refresh_done, /^----------+$/, [:refreshing])
         parser.state(:refresh_done, /^$/, [:refreshing])
         parser.state(:plan_info, /Terraform will perform the following actions:/, [:refresh_done, :none])
@@ -34,6 +35,19 @@ module MuxTf
             when :none
               if line.blank?
                 # nothing
+              else
+                p [state, line]
+              end
+            when :reading
+              clean_line = pastel.strip(line)
+              if clean_line.match /^(.+): Reading...$/
+                log "Reading: #{$LAST_MATCH_INFO[1]} ...", depth: 2
+              elsif clean_line.match /^(.+): Read complete after (.+)(?: \[(.+)\])$/
+                if $LAST_MATCH_INFO[3]
+                  log "Reading Complete: #{$LAST_MATCH_INFO[1]} after #{$LAST_MATCH_INFO[2]} [#{$LAST_MATCH_INFO[3]}]", depth: 3
+                else
+                  log "Reading Complete: #{$LAST_MATCH_INFO[1]} after #{$LAST_MATCH_INFO[2]}", depth: 3
+                end
               else
                 p [state, line]
               end
