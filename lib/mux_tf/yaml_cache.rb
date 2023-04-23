@@ -1,5 +1,11 @@
 require "yaml/store"
 
+module YAML
+  class << self
+    alias_method :load, :unsafe_load
+  end
+end
+
 module MuxTf
   class YamlCache
     def initialize(path, default_ttl:)
