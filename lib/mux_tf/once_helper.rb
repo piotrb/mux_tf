@@ -17,12 +17,14 @@ module MuxTf
         if @path == :then
           yield
         end
+        self
       end
 
       def otherwise(&block)
         if @path == :otherwise
           yield
         end
+        self
       end
     end
 
