@@ -20,6 +20,7 @@ require "tty-table"
 require "dotenv"
 
 require_relative "./mux_tf/version"
+require_relative "./mux_tf/once_helper"
 require_relative "./mux_tf/resource_tokenizer"
 require_relative "./mux_tf/cli"
 require_relative "./mux_tf/tmux"

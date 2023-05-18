@@ -9,7 +9,7 @@ module MuxTf
       def pretty_plan(filename, targets: [])
         pastel = Pastel.new
 
-        phase = :init
+        once = OnceHelper.new
 
         meta = {}
 
@@ -17,12 +17,16 @@ module MuxTf
         parser.state(:info, /^Acquiring state lock/)
         parser.state(:error, /(╷|Error locking state|Error:)/, %i[none blank info reading])
         parser.state(:reading, /: (Reading...|Read complete after)/, %i[none info reading])
+        parser.state(:none, /^$/, [:reading])
         parser.state(:refreshing, /^.+: Refreshing state... \[id=/, %i[none info reading])
         parser.state(:refreshing, /Refreshing Terraform state in-memory prior to plan.../, %i[none blank info reading])
         parser.state(:refresh_done, /^----------+$/, [:refreshing])
         parser.state(:refresh_done, /^$/, [:refreshing])
         parser.state(:plan_info, /Terraform will perform the following actions:/, [:refresh_done, :none])
         parser.state(:plan_summary, /^Plan:/, [:plan_info])
+
+        parser.state(:plan_legend, /^Terraform used the selected providers to generate the following execution$/)
+        parser.state(:none, /^$/, [:plan_legend])
 
         parser.state(:error_lock_info, /Lock Info/, [:error])
         parser.state(:error, /^$/, [:error_lock_info])
@@ -61,10 +65,7 @@ module MuxTf
               meta["error"] = "lock"
               log Paint[line, :red], depth: 2
             when :plan_error
-              if phase != :plan_error
-                puts
-                phase = :plan_error
-              end
+              once.for(state).once { puts }
               meta["error"] = "refresh"
               log Paint[line, :red], depth: 2
             when :error_lock_info
@@ -73,20 +74,22 @@ module MuxTf
               end
               log Paint[line, :red], depth: 2
             when :refreshing
-              if phase != :refreshing
-                phase = :refreshing
+              once.for(state).once {
                 log "Refreshing state ", depth: 2, newline: false
-              else
+              }.otherwise {
                 print "."
-              end
+              }
+            when :plan_legend
+              once.for(state).once { puts }
+              log line, depth: 2
             when :refresh_done
-              if phase != :refresh_done
-                phase = :refresh_done
+              once.for(state).once {
                 puts
-              else
-                # nothing
-              end
+              }.otherwise {
+                #nothing
+              }
             when :plan_info
+              once.for(state).once { puts }
               log line, depth: 2
             when :plan_summary
               log line, depth: 2
