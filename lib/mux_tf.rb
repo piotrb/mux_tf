@@ -6,8 +6,8 @@ require "shellwords"
 require "optparse"
 require "json"
 require "open3"
-require 'digest/md5'
-require 'tmpdir'
+require "digest/md5"
+require "tmpdir"
 
 require "piotrb_cli_utils"
 require "stateful_parser"

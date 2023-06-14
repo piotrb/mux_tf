@@ -1,6 +1,8 @@
+# frozen_string_literal: true
+
 module MuxTf
   module VersionCheck
-    def has_updates?
+    def has_updates? # rubocop:disable Naming/PredicateName
       current_gem_version < latest_gem_version
     end
 
@@ -23,6 +25,6 @@ module MuxTf
       @cache ||= YamlCache.new(File.expand_path("~/.mux_tf.yaml"), default_ttl: 1.hour)
     end
 
-    extend self
+    module_function :has_updates?, :latest_gem_version, :current_gem_version, :cache
   end
 end

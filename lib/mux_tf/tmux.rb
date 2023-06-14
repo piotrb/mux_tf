@@ -16,7 +16,7 @@ module MuxTf
       def find_pane(name)
         panes = `tmux list-panes -F "\#{pane_id},\#{pane_title}"`.strip.split("\n").map { |row|
           x = row.split(",")
-          return {id: x[0], name: x[1]}
+          { id: x[0], name: x[1] }
         }
         panes.find { |pane| pane[:name] == name }
       end
@@ -24,7 +24,7 @@ module MuxTf
       def list_windows
         `tmux list-windows -F "\#{window_id},\#{window_index},\#{window_name}"`.strip.split("\n").map do |row|
           x = row.split(",")
-          {id: x[0], index: x[1], name: x[2]}
+          { id: x[0], index: x[1], name: x[2] }
         end
       end
 
@@ -49,7 +49,7 @@ module MuxTf
       end
 
       def attach(name, cc: false)
-        tmux %(#{cc && "-CC" || ""} attach -t #{name.inspect}), raise_on_error: false
+        tmux %(#{(cc && '-CC') || ''} attach -t #{name.inspect}), raise_on_error: false
       end
 
       def kill_pane(pane_id)
@@ -93,9 +93,7 @@ module MuxTf
           # puts " => tmux #{cmd}"
           system("#{tmux_bin} #{cmd}")
           unless $CHILD_STATUS.success?
-            if raise_on_error
-              fail_with("`tmux #{cmd}' failed with code: #{$CHILD_STATUS.exitstatus}")
-            end
+            fail_with("`tmux #{cmd}' failed with code: #{$CHILD_STATUS.exitstatus}") if raise_on_error
 
             return false
           end

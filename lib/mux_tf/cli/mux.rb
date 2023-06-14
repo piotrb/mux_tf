@@ -13,7 +13,7 @@ module MuxTf
           backup = {}
           Bundler.with_original_env do
             ENV.keys.grep(/^(RBENV_|RUBYLIB)/).each do |key|
-              backup[key] = ENV[key]
+              backup[key] = ENV.fetch(key)
               ENV.delete(key)
             end
             yield
@@ -104,7 +104,7 @@ module MuxTf
           ignored += ENV["MUX_IGNORE"].split(",") if ENV["MUX_IGNORE"]
 
           dirs = Dir["**/.terraform.lock.hcl"].map { |f| File.dirname(f) }
-          dirs.reject! { |d| d.in?(ignored) }
+          dirs.reject! do |d| d.in?(ignored) end
 
           dirs
         end

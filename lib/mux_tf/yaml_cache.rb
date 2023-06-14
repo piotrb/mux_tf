@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "yaml/store"
 
 module YAML
@@ -21,14 +23,15 @@ module YAML
   # This brings us back to the equivalent that was working before in that unsafe
   # load was used before the psych upgrade.
   #
-  # This change: https://my.diffend.io/gems/psych/3.3.2/4.0.0 
+  # This change: https://my.diffend.io/gems/psych/3.3.2/4.0.0
   # is the changes that 'cause the problem' and so I'm 'fixing it' by using the old equivalent.
-  # 
-  # Maybe the yaml cache needs more work to have 
+  #
+  # Maybe the yaml cache needs more work to have
   # `YAML::Store.new(path, { aliases: true, permitted_classes: [Time] }) work.`
   #
   class << self
-    alias_method :load, :unsafe_load
+    undef load # avoid a warning about the next line redefining load
+    alias load unsafe_load
   end
 end
 
@@ -55,13 +58,12 @@ module MuxTf
       end
 
       if info.nil? || info[:expires_at] < Time.now
-        if block_given?
-          value = yield
-          set(key, value, ttl: ttl)
-          return value
-        else
-          raise KeyError, info.nil? ? "no value at key: #{key}" : "value expired at key: #{key}"
-        end
+        raise KeyError, info.nil? ? "no value at key: #{key}" : "value expired at key: #{key}" unless block_given?
+
+        value = yield
+        set(key, value, ttl: ttl)
+        return value
+
       end
 
       info[:value]
