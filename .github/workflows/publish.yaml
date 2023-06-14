@@ -29,6 +29,7 @@ jobs:
       run: |
         git config --global user.email "github-actions@github.com"
         git config --global user.name "GitHub Actions"
+        mkdir -p ~/.gem
         cat << EOF > ~/.gem/credentials
         ---
         :github: Bearer ${{secrets.GITHUB_TOKEN}}
