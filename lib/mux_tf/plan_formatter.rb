@@ -333,7 +333,7 @@ module MuxTf
       def paint_line(line, *paint_options, start_col: 1, end_col: :max)
         end_col = line.length if end_col == :max
         prefix = line[0, start_col - 1]
-        suffix = line[end_col..-1]
+        suffix = line[end_col..]
         middle = line[start_col - 1..end_col - 1]
         "#{prefix}#{Paint[middle, *paint_options]}#{suffix}"
       end
