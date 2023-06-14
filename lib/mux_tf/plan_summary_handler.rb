@@ -6,8 +6,6 @@ module MuxTf
     include TerraformHelpers
     include PiotrbCliUtils::Util
 
-    PLAN_FILENAME = "foo.tfplan"
-
     def self.from_file(file)
       data = data_from_file(file)
       new data
@@ -263,7 +261,8 @@ module MuxTf
     end
 
     def run_plan(targets: [])
-      plan_status, @plan_meta = create_plan(PLAN_FILENAME, targets: targets)
+      plan_filename = MuxTf::Cli::Current.plan_filename
+      plan_status, @plan_meta = create_plan(plan_filename, targets: targets)
 
       case plan_status
       when :ok
@@ -272,7 +271,7 @@ module MuxTf
         log "something went wrong", depth: 1
       when :changes
         log "Printing Plan Summary ...", depth: 1
-        pretty_plan_summary(PLAN_FILENAME)
+        pretty_plan_summary(plan_filename)
       when :unknown
         # nothing
       end

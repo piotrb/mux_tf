@@ -6,6 +6,8 @@ require "shellwords"
 require "optparse"
 require "json"
 require "open3"
+require 'digest/md5'
+require 'tmpdir'
 
 require "piotrb_cli_utils"
 require "stateful_parser"
@@ -20,6 +22,7 @@ require "tty-table"
 require "dotenv"
 
 require_relative "./mux_tf/version"
+require_relative "./mux_tf/plan_filename_generator"
 require_relative "./mux_tf/once_helper"
 require_relative "./mux_tf/resource_tokenizer"
 require_relative "./mux_tf/cli"

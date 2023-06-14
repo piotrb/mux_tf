@@ -10,8 +10,6 @@ module MuxTf
       extend PiotrbCliUtils::CriCommandSupport
       extend PiotrbCliUtils::CmdLoop
 
-      PLAN_FILENAME = "foo.tfplan"
-
       class << self
         def run(args)
           version_check
@@ -34,7 +32,7 @@ module MuxTf
             return launch_cmd_loop(:error) unless upgrade_status == :ok
           end
 
-          plan_status, @plan_meta = create_plan(PLAN_FILENAME)
+          plan_status, @plan_meta = create_plan(plan_filename)
 
           case plan_status
           when :ok
@@ -44,7 +42,7 @@ module MuxTf
             launch_cmd_loop(plan_status)
           when :changes
             log "Printing Plan Summary ...", depth: 1
-            pretty_plan_summary(PLAN_FILENAME)
+            pretty_plan_summary(plan_filename)
             launch_cmd_loop(plan_status)
           when :unknown
             launch_cmd_loop(plan_status)
@@ -57,6 +55,10 @@ module MuxTf
           puts "< press enter to continue >"
           gets
           exit 1
+        end
+
+        def plan_filename
+          PlanFilenameGenerator.for_path
         end
 
         private
@@ -176,7 +178,7 @@ module MuxTf
 
         def apply_cmd
           define_cmd("apply", summary: "Apply the current plan") do |_opts, _args, _cmd|
-            status = tf_apply(filename: PLAN_FILENAME)
+            status = tf_apply(filename: plan_filename)
             if status.success?
               plan_status = run_plan
               throw :stop, :done if plan_status == :ok
@@ -259,7 +261,7 @@ module MuxTf
 
         def interactive_cmd
           define_cmd("interactive", summary: "Apply interactively") do |_opts, _args, _cmd|
-            plan = PlanSummaryHandler.from_file(PLAN_FILENAME)
+            plan = PlanSummaryHandler.from_file(plan_filename)
             begin
               abort_message = catch :abort do
                 plan.run_interactive
@@ -277,7 +279,7 @@ module MuxTf
         end
 
         def run_plan(targets: [])
-          plan_status, @plan_meta = create_plan(PLAN_FILENAME, targets: targets)
+          plan_status, @plan_meta = create_plan(plan_filename, targets: targets)
 
           case plan_status
           when :ok
@@ -286,7 +288,7 @@ module MuxTf
             log "something went wrong", depth: 1
           when :changes
             log "Printing Plan Summary ...", depth: 1
-            pretty_plan_summary(PLAN_FILENAME)
+            pretty_plan_summary(plan_filename)
           when :unknown
             # nothing
           end
