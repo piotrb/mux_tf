@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module MuxTf
   class OnceHelper
     # once = OnceHelper.new
@@ -5,25 +7,21 @@ module MuxTf
 
     class StateEvaluator
       def initialize(once_helper, new_state)
-        if once_helper.state != new_state
+        if once_helper.state == new_state
+          @path = :otherwise
+        else
           once_helper.state = new_state
           @path = :once
-        else
-          @path = :otherwise
         end
       end
 
-      def once(&block)
-        if @path == :then
-          yield
-        end
+      def once
+        yield if @path == :then
         self
       end
 
-      def otherwise(&block)
-        if @path == :otherwise
-          yield
-        end
+      def otherwise
+        yield if @path == :otherwise
         self
       end
     end

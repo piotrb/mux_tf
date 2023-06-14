@@ -13,10 +13,11 @@ Gem::Specification.new do |spec|
   # spec.description   = 'TODO: Write a longer description or delete this line.'
   spec.homepage = "https://github.com/piotrb/mux_tf"
   spec.license = "MIT"
-  spec.required_ruby_version = Gem::Requirement.new(">= 2.3.0")
+  spec.required_ruby_version = Gem::Requirement.new(">= 2.7.0")
 
   # spec.metadata['allowed_push_host'] = "TODO: Set to 'http://mygemserver.com'"
 
+  spec.metadata["rubygems_mfa_required"] = "true"
   spec.metadata["homepage_uri"] = spec.homepage
   spec.metadata["source_code_uri"] = spec.homepage
   # spec.metadata['changelog_uri'] = "TODO: Put your gem's CHANGELOG.md URL here."

@@ -8,7 +8,7 @@ begin
   require "mux_tf"
 
   MuxTf::Cli.run(:plan_summary, ARGV)
-rescue Exception => e
+rescue Exception => e # rubocop:disable Lint/RescueException
   warn e.full_message
   warn "<press enter>"
   $stdin.gets

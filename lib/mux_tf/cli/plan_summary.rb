@@ -23,23 +23,17 @@ module MuxTf
             end
           }.parse!(args)
 
-          if options[:interactive]
-            raise "must specify plan file in interactive mode" if args[0].blank?
-          end
+          raise "must specify plan file in interactive mode" if options[:interactive] && args[0].blank?
 
           plan = if args[0]
-            PlanSummaryHandler.from_file(args[0])
-          else
-            PlanSummaryHandler.from_data(JSON.parse(STDIN.read))
-          end
+                   PlanSummaryHandler.from_file(args[0])
+                 else
+                   PlanSummaryHandler.from_data(JSON.parse($stdin.read))
+                 end
 
           if options[:interactive]
-            abort_message = catch :abort do
-              plan.run_interactive
-            end
-            if abort_message
-              log Paint["Aborted: #{abort_message}", :red]
-            end
+            abort_message = catch(:abort) { plan.run_interactive }
+            log Paint["Aborted: #{abort_message}", :red] if abort_message
           else
             if options[:hierarchy]
               plan.nested_summary.each do |line|

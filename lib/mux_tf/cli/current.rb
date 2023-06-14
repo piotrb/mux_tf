@@ -10,8 +10,6 @@ module MuxTf
       extend PiotrbCliUtils::CriCommandSupport
       extend PiotrbCliUtils::CmdLoop
 
-      PLAN_FILENAME = "foo.tfplan"
-
       class << self
         def run(args)
           version_check
@@ -30,11 +28,11 @@ module MuxTf
           return launch_cmd_loop(:error) unless run_validate
 
           if ENV["TF_UPGRADE"]
-            upgrade_status, upgrade_meta = run_upgrade
+            upgrade_status, _upgrade_meta = run_upgrade
             return launch_cmd_loop(:error) unless upgrade_status == :ok
           end
 
-          plan_status, @plan_meta = create_plan(PLAN_FILENAME)
+          plan_status, @plan_meta = create_plan(plan_filename)
 
           case plan_status
           when :ok
@@ -44,7 +42,7 @@ module MuxTf
             launch_cmd_loop(plan_status)
           when :changes
             log "Printing Plan Summary ...", depth: 1
-            pretty_plan_summary(PLAN_FILENAME)
+            pretty_plan_summary(plan_filename)
             launch_cmd_loop(plan_status)
           when :unknown
             launch_cmd_loop(plan_status)
@@ -59,17 +57,21 @@ module MuxTf
           exit 1
         end
 
+        def plan_filename
+          PlanFilenameGenerator.for_path
+        end
+
         private
 
         def version_check
-          if VersionCheck.has_updates?
-            log Paint["=" * 80, :yellow]
-            log "New version of #{Paint["mux_tf", :cyan]} is available!"
-            log "You are currently on version: #{Paint[VersionCheck.current_gem_version, :yellow]}"
-            log "Latest version found is: #{Paint[VersionCheck.latest_gem_version, :green]}"
-            log "Run `#{Paint["gem install mux_tf", :green]}` to update!"
-            log Paint["=" * 80, :yellow]
-          end
+          return unless VersionCheck.has_updates?
+
+          log Paint["=" * 80, :yellow]
+          log "New version of #{Paint['mux_tf', :cyan]} is available!"
+          log "You are currently on version: #{Paint[VersionCheck.current_gem_version, :yellow]}"
+          log "Latest version found is: #{Paint[VersionCheck.latest_gem_version, :green]}"
+          log "Run `#{Paint['gem install mux_tf', :green]}` to update!"
+          log Paint["=" * 80, :yellow]
         end
 
         def run_validate
@@ -176,7 +178,7 @@ module MuxTf
 
         def apply_cmd
           define_cmd("apply", summary: "Apply the current plan") do |_opts, _args, _cmd|
-            status = tf_apply(filename: PLAN_FILENAME)
+            status = tf_apply(filename: plan_filename)
             if status.success?
               plan_status = run_plan
               throw :stop, :done if plan_status == :ok
@@ -190,7 +192,7 @@ module MuxTf
           define_cmd("shell", summary: "Open your default terminal in the current folder") do |_opts, _args, _cmd|
             log Paint["Launching shell ...", :yellow]
             log Paint["When it exits you will be back at this prompt.", :yellow]
-            system ENV["SHELL"]
+            system ENV.fetch("SHELL")
           end
         end
 
@@ -208,11 +210,11 @@ module MuxTf
 
             if @plan_meta && @plan_meta["error"] == "lock"
               done = catch(:abort) {
-                if @plan_meta["Operation"] != "OperationTypePlan"
-                  throw :abort unless prompt.yes?(
-                    "Are you sure you want to force unlock a lock for operation: #{@plan_meta["Operation"]}",
-                    default: false
-                  )
+                if @plan_meta["Operation"] != "OperationTypePlan" && !prompt.yes?(
+                  "Are you sure you want to force unlock a lock for operation: #{@plan_meta['Operation']}",
+                  default: false
+                )
+                  throw :abort
                 end
 
                 throw :abort unless prompt.yes?(
@@ -259,17 +261,15 @@ module MuxTf
 
         def interactive_cmd
           define_cmd("interactive", summary: "Apply interactively") do |_opts, _args, _cmd|
-            plan = PlanSummaryHandler.from_file(PLAN_FILENAME)
+            plan = PlanSummaryHandler.from_file(plan_filename)
             begin
-              abort_message = catch :abort do
-                plan.run_interactive
-              end
+              abort_message = catch(:abort) { plan.run_interactive }
               if abort_message
                 log Paint["Aborted: #{abort_message}", :red]
               else
                 run_plan
               end
-            rescue Exception => e
+            rescue Exception => e # rubocop:disable Lint/RescueException
               log e.full_message
               log "Interactive Apply Failed!"
             end
@@ -277,7 +277,7 @@ module MuxTf
         end
 
         def run_plan(targets: [])
-          plan_status, @plan_meta = create_plan(PLAN_FILENAME, targets: targets)
+          plan_status, @plan_meta = create_plan(plan_filename, targets: targets)
 
           case plan_status
           when :ok
@@ -286,7 +286,7 @@ module MuxTf
             log "something went wrong", depth: 1
           when :changes
             log "Printing Plan Summary ...", depth: 1
-            pretty_plan_summary(PLAN_FILENAME)
+            pretty_plan_summary(plan_filename)
           when :unknown
             # nothing
           end

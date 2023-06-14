@@ -4,6 +4,8 @@ module MuxTf
   module TerraformHelpers
     include PiotrbCliUtils::ShellHelpers
 
+    ResultStruct = Struct.new("TerraformResponse", :status, :success?, :output, :parsed_output, keyword_init: true)
+
     def tf_force_unlock(id:)
       run_terraform(tf_prepare_command(["force-unlock", "-force", id], need_auth: true))
     end
@@ -88,32 +90,32 @@ module MuxTf
     # return_status: false, echo_command: true, quiet: false, indent: 0
     def run_terraform(args, **_options)
       status = run_shell(args, return_status: true, echo_command: true, quiet: false)
-      OpenStruct.new({
-        status: status,
-        success?: status == 0
-      })
+      ResultStruct.new({
+                         status: status,
+                         success?: status.zero?
+                       })
     end
 
     def stream_terraform(args, &block)
       status = run_with_each_line(args, &block)
       # status is a Process::Status
-      OpenStruct.new({
-        status: status.exitstatus,
-        success?: status.exitstatus == 0
-      })
+      ResultStruct.new({
+                         status: status.exitstatus,
+                         success?: status.exitstatus.zero?
+                       })
     end
 
     # error: true, echo_command: true, indent: 0, raise_on_error: false, detailed_result: false
     def capture_terraform(args, json: nil)
       result = capture_shell(args, error: true, echo_command: false, raise_on_error: false, detailed_result: true)
       parsed_output = JSON.parse(result.output) if json
-      OpenStruct.new({
-        status: result.status,
-        success?: result.status == 0,
-        output: result.output,
-        parsed_output: parsed_output
-      })
-    rescue JSON::ParserError => e
+      ResultStruct.new({
+                         status: result.status,
+                         success?: result.status.zero?,
+                         output: result.output,
+                         parsed_output: parsed_output
+                       })
+    rescue JSON::ParserError
       fail_with "Execution Failed! - #{result.inspect}"
     end
   end

@@ -1,10 +1,13 @@
 # frozen_string_literal: true
 
-source 'https://rubygems.org'
+source "https://rubygems.org"
 
 # Specify your gem's dependencies in mux_tf.gemspec
 gemspec
 
-gem 'rake'
-gem 'gem-release'
-gem 'rspec'
+gem "gem-release"
+gem "rake"
+gem "rspec"
+gem "rubocop", require: false
+gem "rubocop-rake", require: false
+gem "rubocop-rspec", require: false
