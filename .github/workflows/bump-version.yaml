@@ -1,0 +1,53 @@
+name: Bump Version
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: What type of versin bump to do
+        required: true
+        default: minor
+        type: choice
+        options:
+        - major
+        - minor
+        - patch
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: Validate Branch
+      if: github.ref != 'refs/heads/master'
+      run: "false"
+
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Set up Ruby
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: 3.0.2
+
+    - name: Install dependencies
+      run: |
+        gem install bundler
+        bundle install --jobs 4 --retry 3
+
+    - name: Bump version
+      run: |
+        git config --global user.email "github-actions@github.com"
+        git config --global user.name "GitHub Actions"
+        gem bump -v ${{ github.event.inputs.version }}
+
+    # - name: Commit changes
+    #   run: |
+    #     version = `ruby -r ./lib/mux_tf.rb -e "puts MuxTf::VERSION"`
+    #     git commit -am "Bump version to ${version}"
+
+    # - name: Push changes
+    #   uses: ad-m/github-push-action@master
+    #   with:
+    #     github_token: ${{ secrets.GITHUB_TOKEN }}
+    #     branch: ${{ github.ref }}
