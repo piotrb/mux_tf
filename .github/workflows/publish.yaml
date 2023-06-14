@@ -39,12 +39,4 @@ jobs:
 
     - name: Release
       run: |
-        # how do I pass in the key?
         rake release
-
-    # - name: Release Gem
-    #   uses: cadwallion/publish-rubygems-action@master
-    #   env:
-    #     GITHUB_TOKEN: 
-    #     RUBYGEMS_API_KEY: 
-    #     RELEASE_COMMAND: rake release
