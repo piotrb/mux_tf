@@ -29,6 +29,12 @@ jobs:
       run: |
         git config --global user.email "github-actions@github.com"
         git config --global user.name "GitHub Actions"
+        cat << EOF > ~/.gem/credentials
+        ---
+        :github: Bearer ${{secrets.GITHUB_TOKEN}}
+        :rubygems_api_key: ${{secrets.RUBYGEMS_PUBLISH_KEY}}
+        EOF
+        chmod 0600 ~/.gem/credentials
 
     - name: Release
       run: |
@@ -38,6 +44,6 @@ jobs:
     # - name: Release Gem
     #   uses: cadwallion/publish-rubygems-action@master
     #   env:
-    #     GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
-    #     RUBYGEMS_API_KEY: ${{secrets.RUBYGEMS_PUBLISH_KEY}}
+    #     GITHUB_TOKEN: 
+    #     RUBYGEMS_API_KEY: 
     #     RELEASE_COMMAND: rake release
