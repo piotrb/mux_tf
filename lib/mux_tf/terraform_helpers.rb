@@ -70,12 +70,16 @@ module MuxTf
 
     private
 
+    def tf_base_command
+      ENV.fetch("MUX_TF_BASE_CMD", "terraform")
+    end
+
     def tf_prepare_command(args, need_auth:)
       if ENV["MUX_TF_AUTH_WRAPPER"] && need_auth
         words = Shellwords.shellsplit(ENV["MUX_TF_AUTH_WRAPPER"])
-        [*words, "terraform", *args]
+        [*words, tf_base_command, *args]
       else
-        ["terraform", *args]
+        [tf_base_command, *args]
       end
     end
 
