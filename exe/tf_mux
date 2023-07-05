@@ -8,6 +8,9 @@ begin
   require "mux_tf"
 
   MuxTf::Cli.run(:mux, ARGV)
+rescue Interrupt
+  warn "\nInterrupted"
+  exit 1
 rescue Exception => e # rubocop:disable Lint/RescueException
   warn e.full_message
   warn "<press enter>"
