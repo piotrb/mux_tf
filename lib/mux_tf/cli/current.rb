@@ -47,14 +47,6 @@ module MuxTf
           when :unknown
             launch_cmd_loop(plan_status)
           end
-        rescue Exception => e # rubocop:disable Lint/RescueException
-          puts Paint["Unhandled Exception!", :red]
-          puts "=" * 20
-          puts e.full_message
-          puts
-          puts "< press enter to continue >"
-          gets
-          exit 1
         end
 
         def plan_filename
