@@ -60,7 +60,7 @@ module MuxTf
           }
         else
           puts "[??] #{output_name}"
-          puts "UNKNOWN ACTIONS: #{v['actions'].inspect}"
+          puts "UNKNOWN OUTPUT ACTIONS: #{v['actions'].inspect}"
           puts "TODO: update plan_summary to support this!"
         end
       end
@@ -99,6 +99,13 @@ module MuxTf
             address: v["address"],
             deps: find_deps(data, v["address"])
           }
+        when %w[create delete]
+          parts << {
+            type: "resource",
+            action: "replace (create before delete)",
+            address: v["address"],
+            deps: find_deps(data, v["address"])
+          }
         when ["read"]
           parts << {
             type: "resource",
@@ -108,7 +115,7 @@ module MuxTf
           }
         else
           puts "[??] #{v['address']}"
-          puts "UNKNOWN ACTIONS: #{v['change']['actions'].inspect}"
+          puts "UNKNOWN RESOURCE ACTIONS: #{v['change']['actions'].inspect}"
           puts "TODO: update plan_summary to support this!"
         end
       end
@@ -354,6 +361,8 @@ module MuxTf
         :red
       when "replace" # rubocop:disable Lint/DuplicateBranch
         :red
+      when "replace (create before delete)" # rubocop:disable Lint/DuplicateBranch
+        :red
       when "read"
         :cyan
       else
@@ -370,6 +379,8 @@ module MuxTf
       when "delete"
         "-"
       when "replace"
+        "∓"
+      when "replace (create before delete)"
         "±"
       when "read"
         ">"
