@@ -21,6 +21,10 @@ module MuxTf
                      [:none, :blank, :info, :reading])
         parser.state(:refresh_done, /^----------+$/, [:refreshing])
         parser.state(:refresh_done, /^$/, [:refreshing])
+
+        parser.state(:output_info, /^Changes to Outputs:$/, [:refresh_done])
+        parser.state(:refresh_done, /^$/, [:output_info])
+
         parser.state(:plan_info, /Terraform will perform the following actions:/, [:refresh_done, :none])
         parser.state(:plan_summary, /^Plan:/, [:plan_info])
 
@@ -86,6 +90,9 @@ module MuxTf
             when :refresh_done
               puts if first_in_state
             when :plan_info # rubocop:disable Lint/DuplicateBranch
+              puts if first_in_state
+              log line, depth: 2
+            when :output_info # rubocop:disable Lint/DuplicateBranch
               puts if first_in_state
               log line, depth: 2
             when :plan_summary
