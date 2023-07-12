@@ -9,8 +9,6 @@ module MuxTf
       def pretty_plan(filename, targets: []) # rubocop:disable Metrics/AbcSize, Metrics/MethodLength, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
         pastel = Pastel.new
 
-        once = OnceHelper.new
-
         meta = {}
 
         parser = StatefulParser.new(normalizer: pastel.method(:strip))
@@ -34,8 +32,12 @@ module MuxTf
 
         parser.state(:plan_error, /^╷|Error: /, [:refreshing, :refresh_done])
 
+        last_state = nil
+
         status = tf_plan(out: filename, detailed_exitcode: true, compact_warnings: true, targets: targets) { |raw_line|
           parser.parse(raw_line.rstrip) do |state, line|
+            first_in_state = last_state != state
+
             case state
             when :none
               if line.blank?
@@ -66,35 +68,32 @@ module MuxTf
               meta["error"] = "lock"
               log Paint[line, :red], depth: 2
             when :plan_error
-              once.for(state).once do puts end
+              puts if first_in_state
               meta["error"] = "refresh"
               log Paint[line, :red], depth: 2
             when :error_lock_info
               meta[$LAST_MATCH_INFO[1]] = $LAST_MATCH_INFO[2] if line =~ /([A-Z]+\S+)+:\s+(.+)$/
               log Paint[line, :red], depth: 2
             when :refreshing
-              once.for(state).once {
+              if first_in_state
                 log "Refreshing state ", depth: 2, newline: false
-              }.otherwise {
+              else
                 print "."
-              }
+              end
             when :plan_legend
-              once.for(state).once do puts end
+              puts if first_in_state
               log line, depth: 2
             when :refresh_done
-              once.for(state).once {
-                puts
-              }.otherwise {
-                # nothing
-              }
+              puts if first_in_state
             when :plan_info # rubocop:disable Lint/DuplicateBranch
-              once.for(state).once do puts end
+              puts if first_in_state
               log line, depth: 2
             when :plan_summary
               log line, depth: 2
             else
               p [state, pastel.strip(line)]
             end
+            last_state = state
           end
         }
         [status.status, meta]
