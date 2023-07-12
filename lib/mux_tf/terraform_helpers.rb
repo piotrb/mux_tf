@@ -3,6 +3,7 @@
 module MuxTf
   module TerraformHelpers
     include PiotrbCliUtils::ShellHelpers
+    include PiotrbCliUtils::Util
 
     ResultStruct = Struct.new("TerraformResponse", :status, :success?, :output, :parsed_output, keyword_init: true)
 

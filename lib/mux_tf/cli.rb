@@ -2,6 +2,8 @@
 
 module MuxTf
   module Cli
+    extend PiotrbCliUtils::Util
+
     def self.run(mode, args)
       case mode
       when :mux

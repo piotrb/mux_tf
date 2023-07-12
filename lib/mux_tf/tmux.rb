@@ -4,6 +4,8 @@ require "shellwords"
 
 module MuxTf
   module Tmux
+    extend PiotrbCliUtils::Util
+
     class << self
       def session_running?(name)
         tmux("has-session -t #{name.inspect} 2>/dev/null", raise_on_error: false)
