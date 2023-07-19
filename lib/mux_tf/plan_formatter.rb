@@ -13,7 +13,7 @@ module MuxTf
 
         parser = StatefulParser.new(normalizer: pastel.method(:strip))
         parser.state(:info, /^Acquiring state lock/)
-        parser.state(:error, /(╷|Error locking state|Error:)/, [:none, :blank, :info, :reading])
+        parser.state(:error, /(Error locking state|Error:)/, [:none, :blank, :info, :reading])
         parser.state(:reading, /: (Reading...|Read complete after)/, [:none, :info, :reading])
         parser.state(:none, /^$/, [:reading])
         parser.state(:refreshing, /^.+: Refreshing state... \[id=/, [:none, :info, :reading])
@@ -31,10 +31,13 @@ module MuxTf
         parser.state(:plan_legend, /^Terraform used the selected providers to generate the following execution$/)
         parser.state(:none, /^$/, [:plan_legend])
 
-        parser.state(:error_lock_info, /Lock Info/, [:error])
-        parser.state(:error, /^$/, [:error_lock_info])
+        parser.state(:error_lock_info, /Lock Info/, [:plan_error_error])
 
-        parser.state(:plan_error, /^╷|Error: /, [:refreshing, :refresh_done])
+        parser.state(:plan_error, /Planning failed. Terraform encountered an error while generating this plan./, [:refreshing, :refresh_done])
+        parser.state(:plan_error_block, /^╷/, [:plan_error, :none, :blank, :info, :reading])
+        parser.state(:plan_error_warning, /^│ Warning: /, [:plan_error_block])
+        parser.state(:plan_error_error, /^│ Error: /, [:plan_error_block])
+        parser.state(:plan_error, /^╵/, [:plan_error_warning, :plan_error_error, :plan_error_block, :error_lock_info])
 
         last_state = nil
 
@@ -68,16 +71,53 @@ module MuxTf
               else
                 p [state, line]
               end
-            when :error
-              meta["error"] = "lock"
-              log Paint[line, :red], depth: 2
+            when :plan_error_block
+              meta[:current_error] = {
+                type: :unknown,
+                body: [],
+              }
+            when :plan_error_warning, :plan_error_error
+              clean_line = pastel.strip(line).gsub(/^│ /, "")
+              if clean_line =~ /^(Warning|Error): (.+)$/
+                meta[:current_error][:type] = $LAST_MATCH_INFO[1].downcase.to_sym
+                meta[:current_error][:message] = $LAST_MATCH_INFO[2]
+              elsif clean_line == ""
+                # skip double empty lines
+                meta[:current_error][:body] << clean_line if meta[:current_error][:body].last != ""
+              else
+                meta[:current_error][:body] ||= []
+                meta[:current_error][:body] << clean_line
+              end
             when :plan_error
-              puts if first_in_state
-              meta["error"] = "refresh"
-              log Paint[line, :red], depth: 2
+              if pastel.strip(line) == "╵" # closing of an error block
+                if meta[:current_error][:type] == :error
+                  meta[:errors] ||= []
+                  meta[:errors] << meta[:current_error]
+                end
+                if meta[:current_error][:type] == :warning
+                  meta[:warnings] ||= []
+                  meta[:warnings] << meta[:current_error]
+                end
+                meta.delete(:current_error)
+              elsif pastel.strip(line) == ""
+                # skip empty line
+              elsif pastel.strip(line) =~ /Releasing state lock. This may take a few moments"/
+                log line, depth: 2
+              elsif pastel.strip(line) =~ /Planning failed./
+                log line, depth: 2
+              else
+                p [state, line]
+              end
             when :error_lock_info
+              meta["error"] = "lock"
               meta[$LAST_MATCH_INFO[1]] = $LAST_MATCH_INFO[2] if line =~ /([A-Z]+\S+)+:\s+(.+)$/
-              log Paint[line, :red], depth: 2
+              clean_line = pastel.strip(line).gsub(/^│ /, "")
+              if clean_line == ""
+                meta[:current_error][:body] << clean_line if meta[:current_error][:body].last != ""
+              else
+                meta[:current_error][:body] << clean_line
+              end
+              # log Paint[line, :red], depth: 2
             when :refreshing
               if first_in_state
                 log "Refreshing state ", depth: 2, newline: false
@@ -269,6 +309,8 @@ module MuxTf
             if dinfo["detail"]&.include?("terraform init")
               remedies << :init
             elsif /there is no package for .+ cached in/.match?(dinfo["summary"]) # rubocop:disable Lint/DuplicateBranch
+              remedies << :init
+            elsif dinfo["detail"]&.include?("timeout while waiting for plugin to start")  # rubocop:disable Lint/DuplicateBranch
               remedies << :init
             else
               log dinfo["detail"], depth: 4 if dinfo["detail"]

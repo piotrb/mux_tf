@@ -4,7 +4,7 @@ require "bundler"
 
 module MuxTf
   module Cli
-    module Current
+    module Current # rubocop:disable Metrics/ModuleLength
       extend TerraformHelpers
       extend PiotrbCliUtils::Util
       extend PiotrbCliUtils::CriCommandSupport
@@ -32,19 +32,16 @@ module MuxTf
             return launch_cmd_loop(:error) unless upgrade_status == :ok
           end
 
-          plan_status, @plan_meta = create_plan(plan_filename)
+          plan_status = run_plan
 
           case plan_status
           when :ok
-            log "no changes, exiting", depth: 1
+            log "exiting", depth: 1
           when :error
-            log "something went wrong", depth: 1
             launch_cmd_loop(plan_status)
-          when :changes
-            log "Printing Plan Summary ...", depth: 1
-            pretty_plan_summary(plan_filename)
+          when :changes # rubocop:disable Lint/DuplicateBranch
             launch_cmd_loop(plan_status)
-          when :unknown
+          when :unknown # rubocop:disable Lint/DuplicateBranch
             launch_cmd_loop(plan_status)
           end
         end
@@ -68,28 +65,47 @@ module MuxTf
 
         def run_validate
           remedies = PlanFormatter.process_validation(validate)
-          process_remedies(remedies)
+          status, _results = process_remedies(remedies)
+          status
         end
 
-        def process_remedies(remedies)
+        def process_remedies(remedies, retry_count: 0) # rubocop:disable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
+          results = {}
+          if retry_count > 5
+            log "giving up because retry_count: #{retry_count}", depth: 1
+            log "unprocessed remedies: #{remedies.to_a}", depth: 1
+            return [false, results]
+          end
           if remedies.delete? :init
-            log "Running terraform init ...", depth: 2
+            log "[remedy] Running terraform init ...", depth: 2
             remedies = PlanFormatter.init_status_to_remedies(*PlanFormatter.run_tf_init)
-            if process_remedies(remedies)
+            status, r_results = process_remedies(remedies)
+            results.merge!(r_results)
+            if status
               remedies = PlanFormatter.process_validation(validate)
-              return false unless process_remedies(remedies)
+              return [false, results] unless process_remedies(remedies)
             end
           end
+          if remedies.delete?(:plan)
+            log "[remedy] Running terraform plan ...", depth: 2
+            plan_status = run_plan(retry_count: retry_count)
+            results[:plan_status] = plan_status
+            return [false, results] unless [:ok, :changes].include?(plan_status)
+          end
           if remedies.delete? :reconfigure
-            log "Running terraform init ...", depth: 2
+            log "[remedy] Running terraform init ...", depth: 2
             remedies = PlanFormatter.init_status_to_remedies(*PlanFormatter.run_tf_init(reconfigure: true))
-            return false unless process_remedies(remedies)
+            status, r_results = process_remedies(remedies)
+            results.merge!(r_results)
+            unless status
+              return [false, results] 
+            end
           end
           unless remedies.empty?
             log "unprocessed remedies: #{remedies.to_a}", depth: 1
-            return false
+            return [false, results]
           end
-          true
+          [true, results]
         end
 
         def validate
@@ -268,20 +284,70 @@ module MuxTf
           end
         end
 
-        def run_plan(targets: [])
+        def print_errors_and_warnings
+          message = []
+          message << Paint["#{@plan_meta[:warnings].length} Warnings", :yellow] if @plan_meta[:warnings]
+          message << Paint["#{@plan_meta[:errors].length} Errors", :red] if @plan_meta[:errors]
+          if message.length > 0
+            log ""
+            log "Encountered: #{message.join(" and ")}"
+            log ""
+          end
+
+          @plan_meta[:warnings]&.each do |warning|
+            log "-"*20
+            log Paint["Warning: #{warning[:message]}", :yellow]
+            warning[:body]&.each do |line|
+              log Paint[line, :yellow], depth: 1
+            end
+            log ""
+          end
+
+          @plan_meta[:errors]&.each do |error|
+            log "-"*20
+            log Paint["Error: #{error[:message]}", :red]
+            error[:body]&.each do |line|
+              log Paint[line, :red], depth: 1
+            end
+            log ""
+          end
+
+          if message.length > 0
+            log ""
+          end
+        end
+
+        def detect_remedies_from_plan
+          remedies = Set.new
+          @plan_meta[:errors]&.each do |error|
+            remedies << :plan if error[:message].include?("timeout while waiting for plugin to start")
+          end
+          remedies
+        end
+
+        def run_plan(targets: [], retry_count: 0)
           plan_status, @plan_meta = create_plan(plan_filename, targets: targets)
 
           case plan_status
           when :ok
             log "no changes", depth: 1
           when :error
-            log "something went wrong", depth: 1
+            # log "something went wrong", depth: 1
+            print_errors_and_warnings
+            remedies = detect_remedies_from_plan
+            status, results = process_remedies(remedies, retry_count: retry_count)
+            if status
+              plan_status = results[:plan_status]
+            end
           when :changes
             log "Printing Plan Summary ...", depth: 1
             pretty_plan_summary(plan_filename)
           when :unknown
             # nothing
           end
+
+          print_errors_and_warnings
+
           plan_status
         end
 
@@ -292,8 +358,6 @@ module MuxTf
             [:ok, meta]
           when 1
             [:error, meta]
-          # when 2
-          #   [:changes, meta]
           else
             log Paint["terraform init upgrade exited with an unknown exit code: #{exit_code}", :yellow]
             [:unknown, meta]

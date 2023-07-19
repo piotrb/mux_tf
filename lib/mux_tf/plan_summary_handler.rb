@@ -239,7 +239,7 @@ module MuxTf
         throw :abort, "nothing selected"
       else
         log "Re-running apply with the selected resources ..."
-        run_plan(targets: result)
+        MuxTf::Cli::Current.run_plan(targets: result)
       end
     end
 
@@ -261,36 +261,6 @@ module MuxTf
         log Paint["terraform plan exited with an unknown exit code: #{exit_code}", :yellow]
         [:unknown, meta]
       end
-    end
-
-    def run_plan(targets: [])
-      plan_filename = MuxTf::Cli::Current.plan_filename
-      plan_status, @plan_meta = create_plan(plan_filename, targets: targets)
-
-      case plan_status
-      when :ok
-        log "no changes", depth: 1
-      when :error
-        log "something went wrong", depth: 1
-      when :changes
-        log "Printing Plan Summary ...", depth: 1
-        pretty_plan_summary(plan_filename)
-      when :unknown
-        # nothing
-      end
-      plan_status
-    end
-
-    def pretty_plan_summary(filename)
-      plan = PlanSummaryHandler.from_file(filename)
-      plan.flat_summary.each do |line|
-        log line, depth: 2
-      end
-      plan.output_summary.each do |line|
-        log line, depth: 2
-      end
-      log "", depth: 2
-      log plan.summary, depth: 2
     end
 
     def prune_unchanged_deps(_parts)
