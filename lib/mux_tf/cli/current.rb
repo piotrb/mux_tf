@@ -69,7 +69,7 @@ module MuxTf
           status
         end
 
-        def process_remedies(remedies, retry_count: 0) # rubocop:disable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
+        def process_remedies(remedies, retry_count: 0) # rubocop:disable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity, Metrics/MethodLength
           results = {}
           if retry_count > 5
             log "giving up because retry_count: #{retry_count}", depth: 1
@@ -97,9 +97,7 @@ module MuxTf
             remedies = PlanFormatter.init_status_to_remedies(*PlanFormatter.run_tf_init(reconfigure: true))
             status, r_results = process_remedies(remedies)
             results.merge!(r_results)
-            unless status
-              return [false, results] 
-            end
+            return [false, results] unless status
           end
           unless remedies.empty?
             log "unprocessed remedies: #{remedies.to_a}", depth: 1
@@ -284,18 +282,18 @@ module MuxTf
           end
         end
 
-        def print_errors_and_warnings
+        def print_errors_and_warnings # rubocop:disable Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity, Metrics/AbcSize
           message = []
           message << Paint["#{@plan_meta[:warnings].length} Warnings", :yellow] if @plan_meta[:warnings]
           message << Paint["#{@plan_meta[:errors].length} Errors", :red] if @plan_meta[:errors]
-          if message.length > 0
+          if message.length.positive?
             log ""
-            log "Encountered: #{message.join(" and ")}"
+            log "Encountered: #{message.join(' and ')}"
             log ""
           end
 
           @plan_meta[:warnings]&.each do |warning|
-            log "-"*20
+            log "-" * 20
             log Paint["Warning: #{warning[:message]}", :yellow]
             warning[:body]&.each do |line|
               log Paint[line, :yellow], depth: 1
@@ -304,7 +302,7 @@ module MuxTf
           end
 
           @plan_meta[:errors]&.each do |error|
-            log "-"*20
+            log "-" * 20
             log Paint["Error: #{error[:message]}", :red]
             error[:body]&.each do |line|
               log Paint[line, :red], depth: 1
@@ -312,9 +310,9 @@ module MuxTf
             log ""
           end
 
-          if message.length > 0
-            log ""
-          end
+          return unless message.length.positive?
+
+          log ""
         end
 
         def detect_remedies_from_plan
@@ -336,9 +334,7 @@ module MuxTf
             print_errors_and_warnings
             remedies = detect_remedies_from_plan
             status, results = process_remedies(remedies, retry_count: retry_count)
-            if status
-              plan_status = results[:plan_status]
-            end
+            plan_status = results[:plan_status] if status
           when :changes
             log "Printing Plan Summary ...", depth: 1
             pretty_plan_summary(plan_filename)

@@ -74,7 +74,7 @@ module MuxTf
             when :plan_error_block
               meta[:current_error] = {
                 type: :unknown,
-                body: [],
+                body: []
               }
             when :plan_error_warning, :plan_error_error
               clean_line = pastel.strip(line).gsub(/^│ /, "")
@@ -89,7 +89,8 @@ module MuxTf
                 meta[:current_error][:body] << clean_line
               end
             when :plan_error
-              if pastel.strip(line) == "╵" # closing of an error block
+              case pastel.strip(line)
+              when "╵" # closing of an error block
                 if meta[:current_error][:type] == :error
                   meta[:errors] ||= []
                   meta[:errors] << meta[:current_error]
@@ -99,11 +100,11 @@ module MuxTf
                   meta[:warnings] << meta[:current_error]
                 end
                 meta.delete(:current_error)
-              elsif pastel.strip(line) == ""
+              when ""
                 # skip empty line
-              elsif pastel.strip(line) =~ /Releasing state lock. This may take a few moments"/
+              when /Releasing state lock. This may take a few moments"/
                 log line, depth: 2
-              elsif pastel.strip(line) =~ /Planning failed./
+              when /Planning failed./ # rubocop:disable Lint/DuplicateBranch
                 log line, depth: 2
               else
                 p [state, line]
@@ -310,7 +311,7 @@ module MuxTf
               remedies << :init
             elsif /there is no package for .+ cached in/.match?(dinfo["summary"]) # rubocop:disable Lint/DuplicateBranch
               remedies << :init
-            elsif dinfo["detail"]&.include?("timeout while waiting for plugin to start")  # rubocop:disable Lint/DuplicateBranch
+            elsif dinfo["detail"]&.include?("timeout while waiting for plugin to start") # rubocop:disable Lint/DuplicateBranch
               remedies << :init
             else
               log dinfo["detail"], depth: 4 if dinfo["detail"]
