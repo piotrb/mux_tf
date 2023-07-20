@@ -347,6 +347,8 @@ module MuxTf
           plan_status
         end
 
+        public :run_plan
+
         def run_upgrade
           exit_code, meta = PlanFormatter.run_tf_init(upgrade: true)
           case exit_code
