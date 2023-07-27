@@ -22,7 +22,7 @@ module MuxTf
         parser.state(:refresh_done, /^----------+$/, [:refreshing])
         parser.state(:refresh_done, /^$/, [:refreshing])
 
-        parser.state(:output_info, /^Changes to Outputs:$/, [:refresh_done])
+        parser.state(:output_info, /^Changes to Outputs:$/, [:none, :refresh_done])
         parser.state(:refresh_done, /^$/, [:output_info])
 
         parser.state(:plan_info, /Terraform will perform the following actions:/, [:refresh_done, :none])
@@ -32,6 +32,8 @@ module MuxTf
         parser.state(:none, /^$/, [:plan_legend])
 
         parser.state(:error_lock_info, /Lock Info/, [:plan_error_error])
+
+        parser.state(:plan_info, /Terraform planned the following actions, but then encountered a problem:/, [:none])
 
         parser.state(:plan_error, /Planning failed. Terraform encountered an error while generating this plan./, [:refreshing, :refresh_done])
         parser.state(:plan_error_block, /^╷/, [:plan_error, :none, :blank, :info, :reading])
