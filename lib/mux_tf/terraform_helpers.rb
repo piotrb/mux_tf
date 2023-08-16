@@ -121,7 +121,9 @@ module MuxTf
                          parsed_output: parsed_output
                        })
     rescue JSON::ParserError
-      fail_with "Execution Failed! - #{result.inspect}"
+      message = "Execution failed with exit code: #{result.status}"
+      message += "\nOutput:\n#{result.output}" if result.output != ""
+      fail_with message
     end
   end
 end
