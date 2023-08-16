@@ -11,6 +11,8 @@ begin
 rescue Interrupt
   warn "\nInterrupted"
   exit 1
+rescue SystemExit => e
+  exit e.status
 rescue Exception => e # rubocop:disable Lint/RescueException
   warn e.full_message
   warn "<press enter>"
