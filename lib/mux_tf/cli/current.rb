@@ -63,44 +63,94 @@ module MuxTf
           log Paint["=" * 80, :yellow]
         end
 
-        def run_validate
-          remedies = PlanFormatter.process_validation(validate)
-          status, _results = process_remedies(remedies)
-          status
+        # block is expected to return a touple, the first element is a list of remedies
+        # the rest are any additional results
+        def remedy_retry_helper(from:, level: 1, attempt: 0, &block)
+          catch(:abort) do
+            until attempt > 1
+              attempt += 1
+              remedies, *results = block.call
+              return results if remedies.empty?
+
+              remedy_status, _remedy_results = process_remedies(remedies, from: from, level: level)
+              return unless remedy_status
+            end
+            log "!! giving up because attempt: #{attempt}"
+          end
         end
 
-        def process_remedies(remedies, retry_count: 0) # rubocop:disable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity, Metrics/MethodLength
+        # returns boolean true if succeeded
+        def run_validate(level: 1)
+          remedy_retry_helper(from: :validate, level: level) do
+            validation_info = validate
+            PlanFormatter.print_validation_errors(validation_info)
+            remedies = PlanFormatter.process_validation(validation_info)
+            [remedies, validation_info]
+          end
+        end
+
+        def process_remedies(remedies, from: nil, level: 1, retry_count: 0) # rubocop:disable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity, Metrics/MethodLength
+          remedies = remedies.dup
+          remedy = nil
+          wrap_log = lambda do |msg, color: nil|
+            [
+              from ? Paint["#{from} -> ", :cyan] : nil,
+              Paint[remedy ? "[remedy: #{remedy}]" : "[process remedies]", :cyan],
+              " ",
+              color ? Paint[msg, color] : msg,
+              " ",
+              level > 1 ? Paint["[lv #{level}]", :cyan] : nil,
+              retry_count > 0 ? Paint["[try #{retry_count}]", :cyan] : nil
+            ].compact.join
+          end
           results = {}
           if retry_count > 5
-            log "giving up because retry_count: #{retry_count}", depth: 1
-            log "unprocessed remedies: #{remedies.to_a}", depth: 1
+            log wrap_log["giving up because retry_count: #{retry_count}", color: :yellow], depth: 1
+            log wrap_log["unprocessed remedies: #{remedies.to_a}", color: :red], depth: 1
             return [false, results]
           end
           if remedies.delete? :init
-            log "[remedy] Running terraform init ...", depth: 2
-            remedies = PlanFormatter.init_status_to_remedies(*PlanFormatter.run_tf_init)
-            status, r_results = process_remedies(remedies)
+            remedy = :init
+            log wrap_log["Running terraform init ..."], depth: 2
+            exit_code, meta = PlanFormatter.run_tf_init
+            print_errors_and_warnings(meta)
+            remedies = PlanFormatter.init_status_to_remedies(exit_code, meta)
+            status, r_results = process_remedies(remedies, from: from, level: level + 1)
             results.merge!(r_results)
-            if status
-              remedies = PlanFormatter.process_validation(validate)
-              return [false, results] unless process_remedies(remedies)
-            end
+            return [true, r_results] if status
           end
           if remedies.delete?(:plan)
-            log "[remedy] Running terraform plan ...", depth: 2
+            remedy = :plan
+            log wrap_log["Running terraform plan ..."], depth: 2
             plan_status = run_plan(retry_count: retry_count)
             results[:plan_status] = plan_status
             return [false, results] unless [:ok, :changes].include?(plan_status)
           end
           if remedies.delete? :reconfigure
-            log "[remedy] Running terraform init ...", depth: 2
-            remedies = PlanFormatter.init_status_to_remedies(*PlanFormatter.run_tf_init(reconfigure: true))
-            status, r_results = process_remedies(remedies)
-            results.merge!(r_results)
-            return [false, results] unless status
+            remedy = :reconfigure
+            log wrap_log["Running terraform init ..."], depth: 2
+            result = remedy_retry_helper(from: :reconfigure, level: level + 1, attempt: retry_count) {
+              exit_code, meta = PlanFormatter.run_tf_init(reconfigure: true)
+              print_errors_and_warnings(meta)
+              remedies = PlanFormatter.init_status_to_remedies(exit_code, meta)
+              [remedies, exit_code, meta]
+            }
+            unless result
+              log wrap_log["Failed", color: :red], depth: 2
+              return [false, result]
+            end
+          end
+          if remedies.delete? :user_error
+            remedy = :user_error
+            log wrap_log["user error encountered!", color: :red]
+            log wrap_log["-" * 40, color: :red]
+            log wrap_log["!! User Error, Please fix the issue and try again", color: :red]
+            log wrap_log["-" * 40, color: :red]
+            return [false, results]
           end
           unless remedies.empty?
-            log "unprocessed remedies: #{remedies.to_a}", depth: 1
+            remedy = nil
+            log wrap_log["Unprocessed remedies: #{remedies.to_a}", color: :red], depth: 1 if level == 1
             return [false, results]
           end
           [true, results]
@@ -203,21 +253,23 @@ module MuxTf
         end
 
         def force_unlock_cmd
-          define_cmd("force-unlock", summary: "Force unlock state after encountering a lock error!") do
+          define_cmd("force-unlock", summary: "Force unlock state after encountering a lock error!") do # rubocop:disable Metrics/BlockLength
             prompt = TTY::Prompt.new(interrupt: :noop)
 
-            table = TTY::Table.new(header: %w[Field Value])
-            table << ["Lock ID", @plan_meta["ID"]]
-            table << ["Operation", @plan_meta["Operation"]]
-            table << ["Who", @plan_meta["Who"]]
-            table << ["Created", @plan_meta["Created"]]
+            lock_info = @last_lock_info
 
-            puts table.render(:unicode, padding: [0, 1])
+            if lock_info
+              table = TTY::Table.new(header: %w[Field Value])
+              table << ["Lock ID", lock_info[:lock_id]]
+              table << ["Operation", lock_info[:operation]]
+              table << ["Who", lock_info[:who]]
+              table << ["Created", lock_info[:created]]
 
-            if @plan_meta && @plan_meta["error"] == "lock"
+              puts table.render(:unicode, padding: [0, 1])
+
               done = catch(:abort) {
-                if @plan_meta["Operation"] != "OperationTypePlan" && !prompt.yes?(
-                  "Are you sure you want to force unlock a lock for operation: #{@plan_meta['Operation']}",
+                if lock_info[:operation] != "OperationTypePlan" && !prompt.yes?(
+                  "Are you sure you want to force unlock a lock for operation: #{lock_info[:operation]}",
                   default: false
                 )
                   throw :abort
@@ -228,7 +280,7 @@ module MuxTf
                   default: false
                 )
 
-                status = tf_force_unlock(id: @plan_meta["ID"])
+                status = tf_force_unlock(id: lock_info[:lock_id])
                 if status.success?
                   log "Done!"
                 else
@@ -257,8 +309,9 @@ module MuxTf
 
         def reconfigure_cmd
           define_cmd("reconfigure", summary: "Reconfigure modules/plguins") do |_opts, _args, _cmd|
-            status, meta = PlanFormatter.run_tf_init(reconfigure: true)
-            if status != 0
+            exit_code, meta = PlanFormatter.run_tf_init(reconfigure: true)
+            print_errors_and_warnings(meta)
+            if exit_code != 0
               log meta.inspect unless meta.empty?
               log "Reconfigure Failed!"
             end
@@ -282,17 +335,17 @@ module MuxTf
           end
         end
 
-        def print_errors_and_warnings # rubocop:disable Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity, Metrics/AbcSize
+        def print_errors_and_warnings(meta) # rubocop:disable Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity, Metrics/AbcSize
           message = []
-          message << Paint["#{@plan_meta[:warnings].length} Warnings", :yellow] if @plan_meta[:warnings]
-          message << Paint["#{@plan_meta[:errors].length} Errors", :red] if @plan_meta[:errors]
+          message << Paint["#{meta[:warnings].length} Warnings", :yellow] if meta[:warnings]
+          message << Paint["#{meta[:errors].length} Errors", :red] if meta[:errors]
           if message.length.positive?
             log ""
             log "Encountered: #{message.join(' and ')}"
             log ""
           end
 
-          @plan_meta[:warnings]&.each do |warning|
+          meta[:warnings]&.each do |warning|
             log "-" * 20
             log Paint["Warning: #{warning[:message]}", :yellow]
             warning[:body]&.each do |line|
@@ -301,7 +354,7 @@ module MuxTf
             log ""
           end
 
-          @plan_meta[:errors]&.each do |error|
+          meta[:errors]&.each do |error|
             log "-" * 20
             log Paint["Error: #{error[:message]}", :red]
             error[:body]&.each do |line|
@@ -315,34 +368,57 @@ module MuxTf
           log ""
         end
 
-        def detect_remedies_from_plan
+        def detect_remedies_from_plan(meta)
           remedies = Set.new
-          @plan_meta[:errors]&.each do |error|
+          meta[:errors]&.each do |error|
             remedies << :plan if error[:message].include?("timeout while waiting for plugin to start")
           end
+          remedies << :unlock if lock_error?(meta)
           remedies
         end
 
-        def run_plan(targets: [], retry_count: 0)
-          plan_status, @plan_meta = create_plan(plan_filename, targets: targets)
+        def lock_error?(meta)
+          meta && meta["error"] == "lock"
+        end
+
+        def extract_lock_info(meta)
+          {
+            lock_id: meta["ID"],
+            operation: meta["Operation"],
+            who: meta["Who"],
+            created: meta["Created"]
+          }
+        end
+
+        def run_plan(targets: [], level: 1, retry_count: 0)
+          plan_status, meta = remedy_retry_helper(from: :plan, level: level, attempt: retry_count) {
+            @last_lock_info = nil
+
+            plan_status, meta = create_plan(plan_filename, targets: targets)
+
+            print_errors_and_warnings(meta)
+
+            remedies = detect_remedies_from_plan(meta)
+
+            if remedies.include?(:unlock)
+              @last_lock_info = extract_lock_info(meta)
+              throw :abort, [plan_status, meta]
+            end
+
+            [remedies, plan_status, meta]
+          }
 
           case plan_status
           when :ok
             log "no changes", depth: 1
           when :error
-            # log "something went wrong", depth: 1
-            print_errors_and_warnings
-            remedies = detect_remedies_from_plan
-            status, results = process_remedies(remedies, retry_count: retry_count)
-            plan_status = results[:plan_status] if status
+            log "something went wrong", depth: 1
           when :changes
             log "Printing Plan Summary ...", depth: 1
             pretty_plan_summary(plan_filename)
           when :unknown
             # nothing
           end
-
-          print_errors_and_warnings
 
           plan_status
         end
@@ -351,6 +427,7 @@ module MuxTf
 
         def run_upgrade
           exit_code, meta = PlanFormatter.run_tf_init(upgrade: true)
+          print_errors_and_warnings(meta)
           case exit_code
           when 0
             [:ok, meta]

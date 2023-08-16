@@ -6,6 +6,11 @@ module MuxTf
     extend PiotrbCliUtils::Util
 
     class << self
+      def log_unhandled_line(state, line, reason: nil)
+        pastel = Pastel.new
+        p [state, pastel.strip(line), reason]
+      end
+
       def pretty_plan(filename, targets: []) # rubocop:disable Metrics/AbcSize, Metrics/MethodLength, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
         pastel = Pastel.new
 
@@ -19,27 +24,27 @@ module MuxTf
         parser.state(:refreshing, /^.+: Refreshing state... \[id=/, [:none, :info, :reading])
         parser.state(:refreshing, /Refreshing Terraform state in-memory prior to plan.../,
                      [:none, :blank, :info, :reading])
-        parser.state(:refresh_done, /^----------+$/, [:refreshing])
-        parser.state(:refresh_done, /^$/, [:refreshing])
+        parser.state(:none, /^----------+$/, [:refreshing])
+        parser.state(:none, /^$/, [:refreshing])
 
-        parser.state(:output_info, /^Changes to Outputs:$/, [:none, :refresh_done])
-        parser.state(:refresh_done, /^$/, [:output_info])
+        parser.state(:output_info, /^Changes to Outputs:$/, [:none])
+        parser.state(:none, /^$/, [:output_info])
 
-        parser.state(:plan_info, /Terraform will perform the following actions:/, [:refresh_done, :none])
+        parser.state(:plan_info, /Terraform will perform the following actions:/, [:none])
         parser.state(:plan_summary, /^Plan:/, [:plan_info])
 
         parser.state(:plan_legend, /^Terraform used the selected providers to generate the following execution$/)
         parser.state(:none, /^$/, [:plan_legend])
 
-        parser.state(:error_lock_info, /Lock Info/, [:plan_error_error])
-
         parser.state(:plan_info, /Terraform planned the following actions, but then encountered a problem:/, [:none])
 
-        parser.state(:plan_error, /Planning failed. Terraform encountered an error while generating this plan./, [:refreshing, :refresh_done])
-        parser.state(:plan_error_block, /^╷/, [:plan_error, :none, :blank, :info, :reading])
-        parser.state(:plan_error_warning, /^│ Warning: /, [:plan_error_block])
-        parser.state(:plan_error_error, /^│ Error: /, [:plan_error_block])
-        parser.state(:plan_error, /^╵/, [:plan_error_warning, :plan_error_error, :plan_error_block, :error_lock_info])
+        parser.state(:plan_error, /Planning failed. Terraform encountered an error while generating this plan./, [:refreshing])
+
+        # this extends the error block to include the lock info
+        parser.state(:error_lock_info, /Lock Info/, [:error_block_error])
+        parser.state(:after_error, /^╵/, [:error_lock_info])
+
+        setup_error_handling(parser, from_states: [:plan_error, :none, :blank, :info, :reading, :plan_summary])
 
         last_state = nil
 
@@ -52,7 +57,7 @@ module MuxTf
               if line.blank?
                 # nothing
               else
-                p [state, line]
+                log_unhandled_line(state, line, reason: "unexpected non blank line in :none state")
               end
             when :reading
               clean_line = pastel.strip(line)
@@ -65,43 +70,16 @@ module MuxTf
                   log "Reading Complete: #{$LAST_MATCH_INFO[1]} after #{$LAST_MATCH_INFO[2]}", depth: 3
                 end
               else
-                p [state, line]
+                log_unhandled_line(state, line, reason: "unexpected line in :reading state")
               end
             when :info
               if /Acquiring state lock. This may take a few moments.../.match?(line)
                 log "Acquiring state lock ...", depth: 2
               else
-                p [state, line]
-              end
-            when :plan_error_block
-              meta[:current_error] = {
-                type: :unknown,
-                body: []
-              }
-            when :plan_error_warning, :plan_error_error
-              clean_line = pastel.strip(line).gsub(/^│ /, "")
-              if clean_line =~ /^(Warning|Error): (.+)$/
-                meta[:current_error][:type] = $LAST_MATCH_INFO[1].downcase.to_sym
-                meta[:current_error][:message] = $LAST_MATCH_INFO[2]
-              elsif clean_line == ""
-                # skip double empty lines
-                meta[:current_error][:body] << clean_line if meta[:current_error][:body].last != ""
-              else
-                meta[:current_error][:body] ||= []
-                meta[:current_error][:body] << clean_line
+                log_unhandled_line(state, line, reason: "unexpected line in :info state")
               end
             when :plan_error
               case pastel.strip(line)
-              when "╵" # closing of an error block
-                if meta[:current_error][:type] == :error
-                  meta[:errors] ||= []
-                  meta[:errors] << meta[:current_error]
-                end
-                if meta[:current_error][:type] == :warning
-                  meta[:warnings] ||= []
-                  meta[:warnings] << meta[:current_error]
-                end
-                meta.delete(:current_error)
               when ""
                 # skip empty line
               when /Releasing state lock. This may take a few moments"/
@@ -109,7 +87,7 @@ module MuxTf
               when /Planning failed./ # rubocop:disable Lint/DuplicateBranch
                 log line, depth: 2
               else
-                p [state, line]
+                log_unhandled_line(state, line, reason: "unexpected line in :plan_error state")
               end
             when :error_lock_info
               meta["error"] = "lock"
@@ -120,7 +98,6 @@ module MuxTf
               else
                 meta[:current_error][:body] << clean_line
               end
-              # log Paint[line, :red], depth: 2
             when :refreshing
               if first_in_state
                 log "Refreshing state ", depth: 2, newline: false
@@ -141,7 +118,7 @@ module MuxTf
             when :plan_summary
               log line, depth: 2
             else
-              p [state, pastel.strip(line)]
+              log_unhandled_line(state, line, reason: "unexpected state") unless handle_error_states(meta, state, line)
             end
             last_state = state
           end
@@ -152,14 +129,66 @@ module MuxTf
       def init_status_to_remedies(status, meta)
         remedies = Set.new
         if status != 0
-          if meta[:need_reconfigure]
-            remedies << :reconfigure
-          else
-            p [status, meta]
+          remedies << :reconfigure if meta[:need_reconfigure]
+          meta[:errors].each do |error|
+            remedies << :add_provider_constraint if error[:body].grep(/Could not retrieve the list of available versions for provider/)
+          end
+          if remedies.empty?
+            log "!! don't know how to generate init remedies for this"
+            log "!! Status: #{status}"
+            log "!! Meta:"
+            log meta.to_yaml.split("\n").map { |l| "!!   #{l}" }.join("\n")
             remedies << :unknown
           end
         end
         remedies
+      end
+
+      def setup_error_handling(parser, from_states:)
+        parser.state(:error_block, /^╷/, from_states | [:after_error])
+        parser.state(:error_block_error, /^│ Error: /, [:error_block])
+        parser.state(:error_block_warning, /^│ Warning: /, [:error_block])
+        parser.state(:after_error, /^╵/, [:error_block, :error_block_error, :error_block_warning])
+      end
+
+      def handle_error_states(meta, state, line) # rubocop:disable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/MethodLength, Metrics/PerceivedComplexity
+        pastel = Pastel.new
+
+        case state
+        when :error_block
+          meta[:current_error] = {
+            type: :unknown,
+            body: []
+          }
+        when :error_block_error, :error_block_warning
+          clean_line = pastel.strip(line).gsub(/^│ /, "")
+          if clean_line =~ /^(Warning|Error): (.+)$/
+            meta[:current_error][:type] = $LAST_MATCH_INFO[1].downcase.to_sym
+            meta[:current_error][:message] = $LAST_MATCH_INFO[2]
+          elsif clean_line == ""
+            # skip double empty lines
+            meta[:current_error][:body] << clean_line if meta[:current_error][:body].last != ""
+          else
+            meta[:current_error][:body] ||= []
+            meta[:current_error][:body] << clean_line
+          end
+        when :after_error
+          case pastel.strip(line)
+          when "╵" # closing of an error block
+            if meta[:current_error][:type] == :error
+              meta[:errors] ||= []
+              meta[:errors] << meta[:current_error]
+            end
+            if meta[:current_error][:type] == :warning
+              meta[:warnings] ||= []
+              meta[:warnings] << meta[:current_error]
+            end
+            meta.delete(:current_error)
+          end
+        else
+          return false
+        end
+        true
       end
 
       def run_tf_init(upgrade: nil, reconfigure: nil) # rubocop:disable Metrics/MethodLength
@@ -178,6 +207,8 @@ module MuxTf
 
         parser.state(:plugin_warnings, /^$/, [:plugins])
         parser.state(:backend_error, /Error:/, [:backend])
+
+        setup_error_handling(parser, from_states: [:plugins])
 
         status = tf_init(upgrade: upgrade, reconfigure: reconfigure) { |raw_line|
           stripped_line = pastel.strip(raw_line.rstrip)
@@ -200,7 +231,7 @@ module MuxTf
               when ""
                 puts
               else
-                p [state, stripped_line]
+                log_unhandled_line(state, line, reason: "unexpected line in :modules_init state")
               end
             when :modules_upgrade
               if phase != state
@@ -219,13 +250,13 @@ module MuxTf
               when ""
                 puts
               else
-                p [state, stripped_line]
+                log_unhandled_line(state, line, reason: "unexpected line in :modules_upgrade state")
               end
             when :backend
               if phase != state
                 # first line
                 phase = state
-                log "Initializing the backend ", depth: 1, newline: false
+                log "Initializing the backend ", depth: 1 # , newline: false
                 next
               end
               case stripped_line
@@ -236,7 +267,7 @@ module MuxTf
               when ""
                 puts
               else
-                p [state, stripped_line]
+                log_unhandled_line(state, line, reason: "unexpected line in :backend state")
               end
             when :backend_error
               if raw_line.match "terraform init -reconfigure"
@@ -278,7 +309,7 @@ module MuxTf
               when "- Checking for available provider plugins..."
                 # noop
               else
-                p [state, line]
+                log_unhandled_line(state, line, reason: "unexpected line in :plugins state")
               end
             when :plugin_warnings
               if phase != state
@@ -291,9 +322,9 @@ module MuxTf
             when :none
               next if line == ""
 
-              p [state, line]
+              log_unhandled_line(state, line, reason: "unexpected line in :none state")
             else
-              p [state, line]
+              log_unhandled_line(state, line, reason: "unexpected state") unless handle_error_states(meta, state, line)
             end
           end
         }
@@ -301,26 +332,47 @@ module MuxTf
         [status.status, meta]
       end
 
-      def process_validation(info) # rubocop:disable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
+      def print_validation_errors(info) # rubocop:disable Metrics/AbcSize
+        return unless (info["error_count"]).positive? || (info["warning_count"]).positive?
+
+        log "Encountered #{Paint[info['error_count'], :red]} Errors and #{Paint[info['warning_count'], :yellow]} Warnings!", depth: 2
+        info["diagnostics"].each do |dinfo|
+          item_handled = false
+          color = dinfo["severity"] == "error" ? :red : :yellow
+          log "#{Paint[dinfo['severity'].capitalize, color]}: #{dinfo['summary']}", depth: 3
+          log dinfo["detail"], depth: 4 if dinfo["detail"]
+          log format_validation_range(dinfo["range"], color), depth: 4 if dinfo["range"]
+        end
+      end
+
+      def process_validation(info) # rubocop:disable Metrics/CyclomaticComplexity
         remedies = Set.new
 
         if (info["error_count"]).positive? || (info["warning_count"]).positive?
-          log "Encountered #{Paint[info['error_count'], :red]} Errors and #{Paint[info['warning_count'], :yellow]} Warnings!", depth: 2
           info["diagnostics"].each do |dinfo|
-            color = dinfo["severity"] == "error" ? :red : :yellow
-            log "#{Paint[dinfo['severity'].capitalize, color]}: #{dinfo['summary']}", depth: 3
-            if dinfo["detail"]&.include?("terraform init")
-              remedies << :init
-            elsif /there is no package for .+ cached in/.match?(dinfo["summary"]) # rubocop:disable Lint/DuplicateBranch
-              remedies << :init
-            elsif dinfo["detail"]&.include?("timeout while waiting for plugin to start") # rubocop:disable Lint/DuplicateBranch
-              remedies << :init
-            else
-              log dinfo["detail"], depth: 4 if dinfo["detail"]
-              log format_validation_range(dinfo["range"], color), depth: 4 if dinfo["range"]
+            item_handled = false
 
-              remedies << :unknown if dinfo["severity"] == "error"
+            case dinfo["summary"]
+            when /there is no package for .+ cached in/,
+                /Missing required provider/,
+                /Module not installed/
+              remedies << :init
+              item_handled = true
+            when /Missing required argument/,
+                /Error in function call/,
+                /Invalid value for input variable/,
+                /Unsupported block type/
+              remedies << :user_error
+              item_handled = true
             end
+
+            case dinfo["detail"]
+            when /timeout while waiting for plugin to start/
+              remedies << :init
+              item_handled = true
+            end
+
+            remedies << :unknown if !item_handled && (dinfo["severity"] == "error")
           end
         end
 
