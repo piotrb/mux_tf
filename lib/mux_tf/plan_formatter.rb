@@ -44,7 +44,7 @@ module MuxTf
         parser.state(:error_lock_info, /Lock Info/, [:error_block_error])
         parser.state(:after_error, /^╵/, [:error_lock_info])
 
-        setup_error_handling(parser, from_states: [:plan_error, :none, :blank, :info, :reading, :plan_summary])
+        setup_error_handling(parser, from_states: [:plan_error, :none, :blank, :info, :reading, :plan_summary, :refreshing])
 
         last_state = nil
 
@@ -355,7 +355,9 @@ module MuxTf
             case dinfo["summary"]
             when /there is no package for .+ cached in/,
                 /Missing required provider/,
-                /Module not installed/
+                /Module not installed/,
+                /Module source has changed/,
+                /Required plugins are not installed/
               remedies << :init
               item_handled = true
             when /Missing required argument/,
