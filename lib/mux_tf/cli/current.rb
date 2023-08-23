@@ -10,7 +10,7 @@ module MuxTf
       extend PiotrbCliUtils::CriCommandSupport
       extend PiotrbCliUtils::CmdLoop
 
-      class << self
+      class << self # rubocop:disable Metrics/ClassLength
         def run(args)
           version_check
 
@@ -100,7 +100,7 @@ module MuxTf
               color ? Paint[msg, color] : msg,
               " ",
               level > 1 ? Paint["[lv #{level}]", :cyan] : nil,
-              retry_count > 0 ? Paint["[try #{retry_count}]", :cyan] : nil
+              retry_count.positive? ? Paint["[try #{retry_count}]", :cyan] : nil
             ].compact.join
           end
           results = {}
@@ -391,7 +391,7 @@ module MuxTf
         end
 
         def run_plan(targets: [], level: 1, retry_count: 0)
-          plan_status, meta = remedy_retry_helper(from: :plan, level: level, attempt: retry_count) {
+          plan_status, = remedy_retry_helper(from: :plan, level: level, attempt: retry_count) {
             @last_lock_info = nil
 
             plan_status, meta = create_plan(plan_filename, targets: targets)

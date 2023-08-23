@@ -1,11 +1,11 @@
 # frozen_string_literal: true
 
 module MuxTf
-  class PlanFormatter
+  class PlanFormatter # rubocop:disable Metrics/ClassLength
     extend TerraformHelpers
     extend PiotrbCliUtils::Util
 
-    class << self
+    class << self # rubocop:disable Metrics/ClassLength
       def log_unhandled_line(state, line, reason: nil)
         pastel = Pastel.new
         p [state, pastel.strip(line), reason]
@@ -37,6 +37,7 @@ module MuxTf
         parser.state(:none, /^$/, [:plan_legend])
 
         parser.state(:plan_info, /Terraform planned the following actions, but then encountered a problem:/, [:none])
+        parser.state(:plan_info, /No changes. Your infrastructure matches the configuration./, [:none])
 
         parser.state(:plan_error, /Planning failed. Terraform encountered an error while generating this plan./, [:refreshing])
 
@@ -337,7 +338,6 @@ module MuxTf
 
         log "Encountered #{Paint[info['error_count'], :red]} Errors and #{Paint[info['warning_count'], :yellow]} Warnings!", depth: 2
         info["diagnostics"].each do |dinfo|
-          item_handled = false
           color = dinfo["severity"] == "error" ? :red : :yellow
           log "#{Paint[dinfo['severity'].capitalize, color]}: #{dinfo['summary']}", depth: 3
           log dinfo["detail"], depth: 4 if dinfo["detail"]
