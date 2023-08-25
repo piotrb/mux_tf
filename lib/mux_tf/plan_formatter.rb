@@ -11,7 +11,305 @@ module MuxTf
         p [state, pastel.strip(line), reason]
       end
 
-      def pretty_plan(filename, targets: []) # rubocop:disable Metrics/AbcSize, Metrics/MethodLength, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
+      def pretty_plan(filename, targets: [])
+        if ENV["JSON_PLAN"]
+          pretty_plan_v2(filename, targets: targets)
+        else
+          pretty_plan_v1(filename, targets: targets)
+        end
+      end
+
+      def parse_non_json_plan_line(raw_line)
+        result = {}
+
+        if raw_line.match(/^time=(?<timestamp>[^ ]+) level=(?<level>[^ ]+) msg=(?<message>.+?)(?: prefix=\[(?<prefix>.+?)\])?\s*$/)
+          result.merge!($LAST_MATCH_INFO.named_captures.symbolize_keys)
+          result[:module] = "terragrunt"
+          result.delete(:prefix) unless result[:prefix]
+          result[:prefix] = Pathname.new(result[:prefix]).relative_path_from(Dir.getwd).to_s if result[:prefix]
+
+          result[:merge_up] = true if result[:message].match(/^\d+ errors? occurred:$/)
+        elsif raw_line.strip == ""
+          result[:blank] = true
+        else
+          result[:message] = raw_line
+          result[:merge_up] = true
+        end
+
+        # time=2023-08-25T11:44:41-07:00 level=error msg=Terraform invocation failed in /Users/piotr/Work/janepods/.terragrunt-cache/BM86IAj5tW4bZga2lXeYT8tdOKI/V0IEypKSfyl-kHfCnRNAqyX02V8/modules/event-bus prefix=[/Users/piotr/Work/janepods/accounts/eks-dev/admin/apps/kube-system-event-bus]
+        # time=2023-08-25T11:44:41-07:00 level=error msg=1 error occurred:
+        #         * [/Users/piotr/Work/janepods/.terragrunt-cache/BM86IAj5tW4bZga2lXeYT8tdOKI/V0IEypKSfyl-kHfCnRNAqyX02V8/modules/event-bus] exit status 2
+        #
+        #
+        result
+      end
+
+      def tf_plan_json(out:, targets: [], &block)
+        emit_line = proc { |result|
+          result[:level] ||= result[:stream] == :stderr ? "error" : "info"
+          result[:module] ||= result[:stream]
+          result[:type] ||= "unknown"
+
+          if result[:message].match(/^Terraform invocation failed in (.+)/)
+            result[:type] = "tf_failed"
+
+            lines = result[:message].split("\n")
+            result[:diagnostic] = {
+              "summary" => "Terraform invocation failed",
+              "detail" => result[:message],
+              roots: [],
+              extra: []
+            }
+
+            lines.each do |line|
+              if line.match(/^\s+\* \[(.+)\] exit status (\d+)$/)
+                result[:diagnostic][:roots] << {
+                  path: $LAST_MATCH_INFO[1],
+                  status: $LAST_MATCH_INFO[2].to_i
+                }
+              elsif line.match(/^\d+ errors? occurred$/)
+                # noop
+              else
+                result[:diagnostic][:extra] << line
+              end
+            end
+
+            result[:message] = "Terraform invocation failed"
+          end
+
+          block.call(result)
+        }
+        last_stderr_line = nil
+        status = tf_plan(out: out, detailed_exitcode: true, color: true, compact_warnings: false, json: true, input: false,
+                         targets: targets) { |(stream, raw_line)|
+          case stream
+          # when :command
+          #   puts raw_line
+          when :stdout
+            parsed_line = JSON.parse(raw_line)
+            parsed_line.keys.each do |key|
+              if key[0] == "@"
+                parsed_line[key[1..]] = parsed_line[key]
+                parsed_line.delete(key)
+              end
+            end
+            parsed_line.symbolize_keys!
+            parsed_line[:stream] = stream
+            if last_stderr_line
+              emit_line.call(last_stderr_line)
+              last_stderr_line = nil
+            end
+            emit_line.call(parsed_line)
+          when :stderr
+            parsed_line = parse_non_json_plan_line(raw_line)
+            parsed_line[:stream] = stream
+
+            if parsed_line[:blank]
+              if last_stderr_line
+                emit_line.call(last_stderr_line)
+                last_stderr_line = nil
+              end
+            elsif parsed_line[:merge_up]
+              if last_stderr_line
+                last_stderr_line[:message] += "\n#{parsed_line[:message]}"
+              else
+                # this is just a standalone message then
+                parsed_line.delete(:merge_up)
+                last_stderr_line = parsed_line
+              end
+            elsif last_stderr_line
+              emit_line.call(last_stderr_line)
+              last_stderr_line = parsed_line
+            else
+              last_stderr_line = parsed_line
+            end
+          end
+        }
+        emit_line.call(last_stderr_line) if last_stderr_line
+        status
+      end
+
+      def parse_lock_info(detail)
+        # Lock Info:
+        #   ID:        4cc9c775-f0b7-3da7-25a4-94131afcef4d
+        #   Path:      jane-terraform-eks-dev/admin/apps/kube-system-event-bus/terraform.tfstate
+        #   Operation: OperationTypePlan
+        #   Who:       piotr@Piotrs-Jane-MacBook-Pro.local
+        #   Version:   1.5.4
+        #   Created:   2023-08-25 19:03:38.821597 +0000 UTC
+        #   Info:
+        result = {}
+        keys = %w[ID Path Operation Who Version Created]
+        keys.each do |key|
+          result[key] = detail.match(/^#{key}:\s+(.+)$/)&.captures&.first
+        end
+        result
+      end
+
+      def print_plan_line(parsed_line, without: [])
+        default_without = [
+          :level,
+          :module,
+          :type,
+          :stream,
+          :message,
+          :timestamp,
+          :terraform,
+          :ui
+        ]
+        extra = parsed_line.without(*default_without, *without)
+        data = parsed_line.merge(extra: extra)
+        log_line = [
+          "%<level>-6s",
+          "%<module>-12s",
+          "%<type>-10s",
+          "%<message>s",
+          "%<extra>s"
+        ].map { |format_string|
+          field = format_string.match(/%<([^>]+)>/)[1].to_sym
+          data[field].present? ? format(format_string, data) : nil
+        }.compact.join(" | ")
+        log log_line
+      end
+
+      def pretty_plan_v2(filename, targets: [])
+        meta = {}
+        meta[:seen] = {
+          module_and_type: Set.new
+        }
+
+        status = tf_plan_json(out: filename, targets: targets) { |(parsed_line)|
+          first_in_state = !meta[:seen][:module_and_type].include?([parsed_line[:module], parsed_line[:type]])
+          meta[:seen][:module_and_type] << [parsed_line[:module], parsed_line[:type]]
+
+          case parsed_line[:level]
+          when "info"
+            case parsed_line[:module]
+            when "terraform.ui"
+              case parsed_line[:type]
+              when "version"
+                meta[:terraform_version] = parsed_line[:terraform]
+                meta[:terraform_ui_version] = parsed_line[:ui]
+              when "apply_start", "refresh_start"
+                log "Refreshing ", depth: 1, newline: false if first_in_state
+                # {
+                #   :hook=>{
+                #     "resource"=>{
+                #       "addr"=>"data.aws_eks_cluster_auth.this",
+                #       "module"=>"",
+                #       "resource"=>"data.aws_eks_cluster_auth.this",
+                #       "implied_provider"=>"aws",
+                #       "resource_type"=>"aws_eks_cluster_auth",
+                #       "resource_name"=>"this",
+                #       "resource_key"=>nil
+                #     },
+                #     "action"=>"read"
+                #   }
+                # }
+                log ".", newline: false
+              when "apply_complete", "refresh_complete"
+                # {
+                #   :hook=>{
+                #     "resource"=>{
+                #       "addr"=>"data.aws_eks_cluster_auth.this",
+                #       "module"=>"",
+                #       "resource"=>"data.aws_eks_cluster_auth.this",
+                #       "implied_provider"=>"aws",
+                #       "resource_type"=>"aws_eks_cluster_auth",
+                #       "resource_name"=>"this",
+                #       "resource_key"=>nil
+                #     },
+                #     "action"=>"read",
+                #     "id_key"=>"id",
+                #     "id_value"=>"admin",
+                #     "elapsed_seconds"=>0
+                #   }
+                # }
+                # noop
+              when "planned_change"
+                # {
+                #  :change=>
+                #   {"resource"=>
+                #     {"addr"=>"module.application.kubectl_manifest.application",
+                #      "module"=>"module.application",
+                #      "resource"=>"kubectl_manifest.application",
+                #      "implied_provider"=>"kubectl",
+                #      "resource_type"=>"kubectl_manifest",
+                #      "resource_name"=>"application",
+                #      "resource_key"=>nil},
+                #    "action"=>"create"},
+                #  :type=>"planned_change",
+                #  :level=>"info",
+                #  :message=>"module.application.kubectl_manifest.application: Plan to create",
+                #  :module=>"terraform.ui",
+                #  :timestamp=>"2023-08-25T14:48:46.005185-07:00",
+                # }
+                if first_in_state
+                  log ""
+                  log "Planned Changes:"
+                end
+                log "[#{PlanSummaryHandler.format_action(parsed_line[:change]['action'])}] #{PlanSummaryHandler.format_address(parsed_line[:change]['resource']['addr'])}",
+                    depth: 1
+              when "change_summary"
+                # {
+                #   :changes=>{"add"=>1, "change"=>0, "import"=>0, "remove"=>0, "operation"=>"plan"},
+                #   :type=>"change_summary",
+                #   :level=>"info",
+                #   :message=>"Plan: 1 to add, 0 to change, 0 to destroy.",
+                #   :module=>"terraform.ui",
+                #   :timestamp=>"2023-08-25T14:48:46.005211-07:00",
+                #   :stream=>:stdout
+                # }
+                log ""
+                # puts parsed_line[:message]
+                log "#{parsed_line[:changes]['operation'].capitalize} summary: " + parsed_line[:changes].without("operation").map { |k, v|
+                  color = PlanSummaryHandler.color_for_action(k)
+                  "#{Paint[v, :yellow]} to #{Paint[k, color]}" if v > 0
+                }.compact.join(" ")
+
+              else
+                print_plan_line(parsed_line)
+              end
+            else
+              print_plan_line(parsed_line)
+            end
+          when "error"
+            if parsed_line[:diagnostic]
+              handled_error = false
+              muted_error = false
+              unless parsed_line[:module] == "terragrunt" && parsed_line[:type] == "tf_failed"
+                meta[:errors] ||= []
+                meta[:errors] << {
+                  type: :error,
+                  message: parsed_line[:diagnostic]["summary"],
+                  body: parsed_line[:diagnostic]["detail"].split("\n")
+                }
+              end
+
+              if parsed_line[:diagnostic]["summary"] == "Error acquiring the state lock"
+                meta["error"] = "lock"
+                meta.merge!(parse_lock_info(parsed_line[:diagnostic]["detail"]))
+                handled_error = true
+              elsif parsed_line[:module] == "terragrunt" && parsed_line[:type] == "tf_failed"
+                muted_error = true
+              end
+
+              unless muted_error
+                if handled_error
+                  print_plan_line(parsed_line, without: [:diagnostic])
+                else
+                  print_plan_line(parsed_line)
+                end
+              end
+            else
+              print_plan_line(parsed_line)
+            end
+          end
+        }
+        [status.status, meta]
+      end
+
+      def pretty_plan_v1(filename, targets: []) # rubocop:disable Metrics/AbcSize, Metrics/MethodLength, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
         pastel = Pastel.new
 
         meta = {}

@@ -221,9 +221,31 @@ module MuxTf
           root_cmd.add_command(upgrade_cmd)
           root_cmd.add_command(reconfigure_cmd)
           root_cmd.add_command(interactive_cmd)
+          root_cmd.add_command(plan_details_cmd)
 
           root_cmd.add_command(exit_cmd)
+          root_cmd.add_command(define_cmd("help", summary: "Show help for commands") { |_opts, _args, cmd| puts cmd.supercommand.help })
           root_cmd
+        end
+
+        def get_plan_summary_text
+          plan_filename = PlanFilenameGenerator.for_path
+          if File.exist?("#{plan_filename}.txt") && File.mtime("#{plan_filename}.txt").to_f >= File.mtime(plan_filename).to_f
+            File.read("#{plan_filename}.txt")
+          else
+            puts "Inspecting Changes ..."
+            result = tf_show(plan_filename, capture: true)
+            data = result.output
+            File.write("#{plan_filename}.txt", data)
+            data.nil?
+            data
+          end
+        end
+
+        def plan_details_cmd
+          define_cmd("details", summary: "Show Plan Details") do |_opts, _args, _cmd|
+            puts get_plan_summary_text
+          end
         end
 
         def plan_cmd
@@ -414,8 +436,10 @@ module MuxTf
           when :error
             log "something went wrong", depth: 1
           when :changes
-            log "Printing Plan Summary ...", depth: 1
-            pretty_plan_summary(plan_filename)
+            unless ENV["JSON_PLAN"]
+              log "Printing Plan Summary ...", depth: 1
+              pretty_plan_summary(plan_filename)
+            end
           when :unknown
             # nothing
           end

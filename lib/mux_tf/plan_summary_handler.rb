@@ -139,7 +139,7 @@ module MuxTf
         resource_summary[part[:action]] += 1
       end
       resource_pieces = resource_summary.map { |k, v|
-        color = color_for_action(k)
+        color = self.class.color_for_action(k)
         "#{Paint[v, :yellow]} to #{Paint[k, color]}"
       }
 
@@ -150,7 +150,7 @@ module MuxTf
         output_summary[part[:action]] += 1
       end
       output_pieces = output_summary.map { |k, v|
-        color = color_for_action(k)
+        color = self.class.color_for_action(k)
         "#{Paint[v, :yellow]} to #{Paint[k, color]}"
       }
 
@@ -168,7 +168,7 @@ module MuxTf
     def flat_summary
       result = []
       resource_parts.each do |part|
-        result << "[#{format_action(part[:action])}] #{format_address(part[:address])}"
+        result << "[#{self.class.format_action(part[:action])}] #{self.class.format_address(part[:address])}"
       end
       result
     end
@@ -188,8 +188,8 @@ module MuxTf
       result = []
       output_parts.each do |part|
         pieces = [
-          "[#{format_action(part[:action])}]",
-          format_address("output.#{part[:address]}"),
+          "[#{self.class.format_action(part[:action])}]",
+          self.class.format_address("output.#{part[:address]}"),
           part[:after_unknown] ? "(unknown)" : nil,
           sensitive_summary(*part[:sensitive])
         ].compact
@@ -209,7 +209,7 @@ module MuxTf
                    else
                      ""
                    end
-          message = "[#{format_action(part[:action])}]#{indent} #{format_address(part[:address])}"
+          message = "[#{self.class.format_action(part[:action])}]#{indent} #{self.class.format_address(part[:address])}"
           message += " - (needs: #{part[:met_deps].join(', ')})" if part[:met_deps]
           result << message
           parts.each do |ipart|
@@ -230,7 +230,7 @@ module MuxTf
       prompt = TTY::Prompt.new
       result = prompt.multi_select("Update resources:", per_page: 99, echo: false) { |menu|
         resource_parts.each do |part|
-          label = "[#{format_action(part[:action])}] #{format_address(part[:address])}"
+          label = "[#{self.class.format_action(part[:action])}] #{self.class.format_address(part[:address])}"
           menu.choice label, part[:address]
         end
       }
@@ -321,13 +321,13 @@ module MuxTf
       end
     end
 
-    def color_for_action(action)
+    def self.color_for_action(action)
       case action
-      when "create"
+      when "create", "add"
         :green
-      when "update"
+      when "update", "change"
         :yellow
-      when "delete"
+      when "delete", "remove"
         :red
       when "replace" # rubocop:disable Lint/DuplicateBranch
         :red
@@ -335,12 +335,14 @@ module MuxTf
         :red
       when "read"
         :cyan
+      when "import"
+        :cyan
       else
         :reset
       end
     end
 
-    def symbol_for_action(action)
+    def self.symbol_for_action(action)
       case action
       when "create"
         "+"
@@ -359,13 +361,13 @@ module MuxTf
       end
     end
 
-    def format_action(action)
+    def self.format_action(action)
       color = color_for_action(action)
       symbol = symbol_for_action(action)
       Paint[symbol, color]
     end
 
-    def format_address(address)
+    def self.format_address(address)
       result = []
       parts = ResourceTokenizer.tokenize(address)
       parts.each_with_index do |(part_type, part_value), index|
