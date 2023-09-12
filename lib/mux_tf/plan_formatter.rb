@@ -226,6 +226,20 @@ module MuxTf
                 #   }
                 # }
                 # noop
+              when "resource_drift"
+                # {
+                #   :change=>{
+                #     "resource"=>{"addr"=>"module.application.kubectl_manifest.application", "module"=>"module.application", "resource"=>"kubectl_manifest.application", "implied_provider"=>"kubectl", "resource_type"=>"kubectl_manifest", "resource_name"=>"application", "resource_key"=>nil},
+                #     "action"=>"update"
+                #   }
+                # }
+                if first_in_state
+                  log ""
+                  log "Planned Changes:"
+                end
+                log parsed_line[:message]
+                log "[#{PlanSummaryHandler.format_action(parsed_line[:change]['action'])}] #{PlanSummaryHandler.format_address(parsed_line[:change]['resource']['addr'])}",
+                    depth: 1
               when "planned_change"
                 # {
                 #  :change=>
@@ -655,13 +669,15 @@ module MuxTf
                 /Missing required provider/,
                 /Module not installed/,
                 /Module source has changed/,
-                /Required plugins are not installed/
+                /Required plugins are not installed/,
+                /Module version requirements have changed/
               remedies << :init
               item_handled = true
             when /Missing required argument/,
                 /Error in function call/,
                 /Invalid value for input variable/,
-                /Unsupported block type/
+                /Unsupported block type/,
+                /Reference to undeclared input variable/
               remedies << :user_error
               item_handled = true
             end
@@ -672,7 +688,11 @@ module MuxTf
               item_handled = true
             end
 
-            remedies << :unknown if !item_handled && (dinfo["severity"] == "error")
+            next if item_handled
+
+            puts "!! don't know how to handle this validation error"
+            puts dinfo.inspect
+            remedies << :unknown if dinfo["severity"] == "error"
           end
         end
 
