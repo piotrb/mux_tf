@@ -677,7 +677,8 @@ module MuxTf
                 /Error in function call/,
                 /Invalid value for input variable/,
                 /Unsupported block type/,
-                /Reference to undeclared input variable/
+                /Reference to undeclared input variable/,
+                /Invalid reference/
               remedies << :user_error
               item_handled = true
             end
