@@ -5,26 +5,93 @@ module MuxTf
     extend TerraformHelpers
     include TerraformHelpers
     include PiotrbCliUtils::Util
+    include Coloring
 
-    def self.from_file(file)
-      data = data_from_file(file)
-      new data
-    end
-
-    def self.data_from_file(file)
-      if File.exist?("#{file}.json") && File.mtime("#{file}.json").to_f >= File.mtime(file).to_f
-        JSON.parse(File.read("#{file}.json"))
-      else
-        puts "Analyzing changes ..."
-        result = tf_show(file, json: true)
-        data = result.parsed_output
-        File.write("#{file}.json", JSON.dump(data))
-        data
+    class << self
+      def from_file(file)
+        data = data_from_file(file)
+        new data
       end
-    end
 
-    def self.from_data(data)
-      new(data)
+      def data_from_file(file)
+        if File.exist?("#{file}.json") && File.mtime("#{file}.json").to_f >= File.mtime(file).to_f
+          JSON.parse(File.read("#{file}.json"))
+        else
+          puts "Analyzing changes ..."
+          result = tf_show(file, json: true)
+          data = result.parsed_output
+          File.write("#{file}.json", JSON.dump(data))
+          data
+        end
+      end
+
+      def from_data(data)
+        new(data)
+      end
+
+      def color_for_action(action)
+        case action
+        when "create", "add"
+          :green
+        when "update", "change"
+          :yellow
+        when "delete", "remove"
+          :red
+        when "replace" # rubocop:disable Lint/DuplicateBranch
+          :red
+        when "replace (create before delete)" # rubocop:disable Lint/DuplicateBranch
+          :red
+        when "read"
+          :cyan
+        when "import" # rubocop:disable Lint/DuplicateBranch
+          :cyan
+        else
+          :reset
+        end
+      end
+
+      def symbol_for_action(action)
+        case action
+        when "create"
+          "+"
+        when "update"
+          "~"
+        when "delete"
+          "-"
+        when "replace"
+          "∓"
+        when "replace (create before delete)"
+          "±"
+        when "read"
+          ">"
+        else
+          action
+        end
+      end
+
+      def format_action(action)
+        color = color_for_action(action)
+        symbol = symbol_for_action(action)
+        pastel.decorate(symbol, color)
+      end
+
+      def self.format_address(address)
+        result = []
+        parts = ResourceTokenizer.tokenize(address)
+        parts.each_with_index do |(part_type, part_value), index|
+          case part_type
+          when :rt
+            result << "." if index.positive?
+            result << pastel.cyan(part_value)
+          when :rn
+            result << "."
+            result << part_value
+          when :ri
+            result << pastel.green(part_value)
+          end
+        end
+        result.join
+      end
     end
 
     def initialize(data) # rubocop:disable Metrics/AbcSize, Metrics/MethodLength, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
@@ -140,7 +207,7 @@ module MuxTf
       end
       resource_pieces = resource_summary.map { |k, v|
         color = self.class.color_for_action(k)
-        "#{Paint[v, :yellow]} to #{Paint[k, color]}"
+        "#{pastel.yellow(v)} to #{pastel.decorate(k, color)}"
       }
 
       # outputs
@@ -151,14 +218,14 @@ module MuxTf
       end
       output_pieces = output_summary.map { |k, v|
         color = self.class.color_for_action(k)
-        "#{Paint[v, :yellow]} to #{Paint[k, color]}"
+        "#{pastel.yellow(v)} to #{pastel.decorate(k, color)}"
       }
 
       if resource_pieces.any? || output_pieces.any?
         [
           "Plan Summary:",
-          resource_pieces.any? ? resource_pieces.join(Paint[", ", :gray]) : nil,
-          output_pieces.any? ? "Outputs: #{output_pieces.join(Paint[', ', :gray])}" : nil
+          resource_pieces.any? ? resource_pieces.join(pastel.gray(", ")) : nil,
+          output_pieces.any? ? "Outputs: #{output_pieces.join(pastel.gray(', '))}" : nil
         ].compact.join(" ")
       else
         "Plan Summary: no changes"
@@ -176,11 +243,11 @@ module MuxTf
     def sensitive_summary(before_value, after_value)
       # before vs after
       if before_value && after_value
-        "(#{Paint['sensitive', :yellow]})"
+        "(#{pastel.yellow('sensitive')})"
       elsif before_value
-        "(#{Paint['-sensitive', :red]})"
+        "(#{pastel.red('-sensitive')})"
       elsif after_value
-        "(#{Paint['+sensitive', :cyan]})"
+        "(#{pastel.cyan('+sensitive')})"
       end
     end
 
@@ -198,7 +265,7 @@ module MuxTf
       result
     end
 
-    def nested_summary # rubocop:disable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
+    def nested_summary # rubocop:disable Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
       result = []
       parts = resource_parts.deep_dup
       until parts.empty?
@@ -258,7 +325,7 @@ module MuxTf
       when 2
         [:changes, meta]
       else
-        log Paint["terraform plan exited with an unknown exit code: #{exit_code}", :yellow]
+        log pastel.yellow("terraform plan exited with an unknown exit code: #{exit_code}")
         [:unknown, meta]
       end
     end
@@ -319,70 +386,6 @@ module MuxTf
         end
         [resource, parent_address]
       end
-    end
-
-    def self.color_for_action(action)
-      case action
-      when "create", "add"
-        :green
-      when "update", "change"
-        :yellow
-      when "delete", "remove"
-        :red
-      when "replace" # rubocop:disable Lint/DuplicateBranch
-        :red
-      when "replace (create before delete)" # rubocop:disable Lint/DuplicateBranch
-        :red
-      when "read"
-        :cyan
-      when "import"
-        :cyan
-      else
-        :reset
-      end
-    end
-
-    def self.symbol_for_action(action)
-      case action
-      when "create"
-        "+"
-      when "update"
-        "~"
-      when "delete"
-        "-"
-      when "replace"
-        "∓"
-      when "replace (create before delete)"
-        "±"
-      when "read"
-        ">"
-      else
-        action
-      end
-    end
-
-    def self.format_action(action)
-      color = color_for_action(action)
-      symbol = symbol_for_action(action)
-      Paint[symbol, color]
-    end
-
-    def self.format_address(address)
-      result = []
-      parts = ResourceTokenizer.tokenize(address)
-      parts.each_with_index do |(part_type, part_value), index|
-        case part_type
-        when :rt
-          result << "." if index.positive?
-          result << Paint[part_value, :cyan]
-        when :rn
-          result << "."
-          result << part_value
-        when :ri
-          result << Paint[part_value, :green]
-        end
-      end
-      result.join
     end
   end
 end

@@ -7,13 +7,13 @@ module MuxTf
     def self.run(mode, args)
       case mode
       when :mux
-        require_relative "./cli/mux"
+        require_relative "cli/mux"
         MuxTf::Cli::Mux.run(args)
       when :current
-        require_relative "./cli/current"
+        require_relative "cli/current"
         MuxTf::Cli::Current.run(args)
       when :plan_summary
-        require_relative "./cli/plan_summary"
+        require_relative "cli/plan_summary"
         MuxTf::Cli::PlanSummary.run(args)
       else
         fail_with "unhandled mode: #{mode.inspect}"

@@ -4,10 +4,10 @@ module MuxTf
   class PlanFormatter # rubocop:disable Metrics/ClassLength
     extend TerraformHelpers
     extend PiotrbCliUtils::Util
+    include Coloring
 
     class << self # rubocop:disable Metrics/ClassLength
       def log_unhandled_line(state, line, reason: nil)
-        pastel = Pastel.new
         p [state, pastel.strip(line), reason]
       end
 
@@ -44,6 +44,7 @@ module MuxTf
         result
       end
 
+      # rubocop:disable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/MethodLength, Metrics/PerceivedComplexity
       def tf_plan_json(out:, targets: [], &block)
         emit_line = proc { |result|
           result[:level] ||= result[:stream] == :stderr ? "error" : "info"
@@ -87,7 +88,7 @@ module MuxTf
           #   puts raw_line
           when :stdout
             parsed_line = JSON.parse(raw_line)
-            parsed_line.keys.each do |key|
+            parsed_line.keys.each do |key| # rubocop:disable Style/HashEachMethods -- intentional, allow adding keys to hash while iterating
               if key[0] == "@"
                 parsed_line[key[1..]] = parsed_line[key]
                 parsed_line.delete(key)
@@ -128,6 +129,7 @@ module MuxTf
         emit_line.call(last_stderr_line) if last_stderr_line
         status
       end
+      # rubocop:enable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/MethodLength, Metrics/PerceivedComplexity
 
       def parse_lock_info(detail)
         # Lock Info:
@@ -141,7 +143,7 @@ module MuxTf
         result = {}
         keys = %w[ID Path Operation Who Version Created]
         keys.each do |key|
-          result[key] = detail.match(/^#{key}:\s+(.+)$/)&.captures&.first
+          result[key] = detail.match(/^\s*#{key}:\s+(.+)$/)&.captures&.first
         end
         result
       end
@@ -172,6 +174,7 @@ module MuxTf
         log log_line
       end
 
+      # rubocop:disable Metrics/AbcSize, Metrics/MethodLength, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
       def pretty_plan_v2(filename, targets: [])
         meta = {}
         meta[:seen] = {
@@ -179,8 +182,8 @@ module MuxTf
         }
 
         status = tf_plan_json(out: filename, targets: targets) { |(parsed_line)|
-          first_in_state = !meta[:seen][:module_and_type].include?([parsed_line[:module], parsed_line[:type]])
-          meta[:seen][:module_and_type] << [parsed_line[:module], parsed_line[:type]]
+          seen = proc { |module_arg, type_arg| meta[:seen][:module_and_type].include?([module_arg, type_arg]) }
+          # first_in_state = !seen.call(parsed_line[:module], parsed_line[:type])
 
           case parsed_line[:level]
           when "info"
@@ -191,7 +194,9 @@ module MuxTf
                 meta[:terraform_version] = parsed_line[:terraform]
                 meta[:terraform_ui_version] = parsed_line[:ui]
               when "apply_start", "refresh_start"
-                log "Refreshing ", depth: 1, newline: false if first_in_state
+                first_in_group = !seen.call(parsed_line[:module], "apply_start") &&
+                                 !seen.call(parsed_line[:module], "refresh_start")
+                log "Refreshing ", depth: 1, newline: false if first_in_group
                 # {
                 #   :hook=>{
                 #     "resource"=>{
@@ -227,20 +232,39 @@ module MuxTf
                 # }
                 # noop
               when "resource_drift"
+                first_in_group = !seen.call(parsed_line[:module], "resource_drift") &&
+                                 !seen.call(parsed_line[:module], "planned_change")
                 # {
                 #   :change=>{
                 #     "resource"=>{"addr"=>"module.application.kubectl_manifest.application", "module"=>"module.application", "resource"=>"kubectl_manifest.application", "implied_provider"=>"kubectl", "resource_type"=>"kubectl_manifest", "resource_name"=>"application", "resource_key"=>nil},
                 #     "action"=>"update"
                 #   }
                 # }
-                if first_in_state
+                if first_in_group
+                  log ""
                   log ""
                   log "Planned Changes:"
                 end
-                log parsed_line[:message]
-                log "[#{PlanSummaryHandler.format_action(parsed_line[:change]['action'])}] #{PlanSummaryHandler.format_address(parsed_line[:change]['resource']['addr'])}",
-                    depth: 1
+                # {
+                #   :change=>{
+                #     "resource"=>{"addr"=>"aws_iam_policy.crossplane_aws_ecr[0]", "module"=>"", "resource"=>"aws_iam_policy.crossplane_aws_ecr[0]", "implied_provider"=>"aws", "resource_type"=>"aws_iam_policy", "resource_name"=>"crossplane_aws_ecr", "resource_key"=>0},
+                #     "action"=>"update"
+                #   },
+                #   :type=>"resource_drift",
+                #   :level=>"info",
+                #   :message=>"aws_iam_policy.crossplane_aws_ecr[0]: Drift detected (update)",
+                #   :module=>"terraform.ui",
+                #   :timestamp=>"2023-09-26T17:11:46.340117-07:00",
+                #   :stream=>:stdout
+                # }
+
+                log format("[%<action>s] %<addr>s - Drift Detected (%<change_action>s)",
+                           action: PlanSummaryHandler.format_action(parsed_line[:change]["action"]),
+                           addr: PlanSummaryHandler.format_address(parsed_line[:change]["resource"]["addr"]),
+                           change_action: parsed_line[:change]["action"]), depth: 1
               when "planned_change"
+                first_in_group = !seen.call(parsed_line[:module], "resource_drift") &&
+                                 !seen.call(parsed_line[:module], "planned_change")
                 # {
                 #  :change=>
                 #   {"resource"=>
@@ -258,12 +282,14 @@ module MuxTf
                 #  :module=>"terraform.ui",
                 #  :timestamp=>"2023-08-25T14:48:46.005185-07:00",
                 # }
-                if first_in_state
+                if first_in_group
+                  log ""
                   log ""
                   log "Planned Changes:"
                 end
-                log "[#{PlanSummaryHandler.format_action(parsed_line[:change]['action'])}] #{PlanSummaryHandler.format_address(parsed_line[:change]['resource']['addr'])}",
-                    depth: 1
+                log format("[%<action>s] %<addr>s",
+                           action: PlanSummaryHandler.format_action(parsed_line[:change]["action"]),
+                           addr: PlanSummaryHandler.format_address(parsed_line[:change]["resource"]["addr"])), depth: 1
               when "change_summary"
                 # {
                 #   :changes=>{"add"=>1, "change"=>0, "import"=>0, "remove"=>0, "operation"=>"plan"},
@@ -278,7 +304,7 @@ module MuxTf
                 # puts parsed_line[:message]
                 log "#{parsed_line[:changes]['operation'].capitalize} summary: " + parsed_line[:changes].without("operation").map { |k, v|
                   color = PlanSummaryHandler.color_for_action(k)
-                  "#{Paint[v, :yellow]} to #{Paint[k, color]}" if v > 0
+                  "#{pastel.yellow(v)} to #{pastel.decorate(k, color)}" if v.positive?
                 }.compact.join(" ")
 
               else
@@ -319,13 +345,14 @@ module MuxTf
               print_plan_line(parsed_line)
             end
           end
+
+          meta[:seen][:module_and_type] << [parsed_line[:module], parsed_line[:type]]
         }
         [status.status, meta]
       end
+      # rubocop:enable Metrics/AbcSize, Metrics/MethodLength, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
 
       def pretty_plan_v1(filename, targets: []) # rubocop:disable Metrics/AbcSize, Metrics/MethodLength, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
-        pastel = Pastel.new
-
         meta = {}
 
         parser = StatefulParser.new(normalizer: pastel.method(:strip))
@@ -465,8 +492,6 @@ module MuxTf
       end
 
       def handle_error_states(meta, state, line) # rubocop:disable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/MethodLength, Metrics/PerceivedComplexity
-        pastel = Pastel.new
-
         case state
         when :error_block
           meta[:current_error] = {
@@ -505,8 +530,6 @@ module MuxTf
       end
 
       def run_tf_init(upgrade: nil, reconfigure: nil) # rubocop:disable Metrics/MethodLength
-        pastel = Pastel.new
-
         phase = :init
 
         meta = {}
@@ -585,7 +608,7 @@ module MuxTf
             when :backend_error
               if raw_line.match "terraform init -reconfigure"
                 meta[:need_reconfigure] = true
-                log Paint["module needs to be reconfigured", :red], depth: 2
+                log pastel.red("module needs to be reconfigured"), depth: 2
               end
             when :plugins
               if phase != state
@@ -631,7 +654,7 @@ module MuxTf
                 next
               end
 
-              log Paint[line, :yellow], depth: 1
+              log pastel.yellow(line), depth: 1
             when :none
               next if line == ""
 
@@ -645,23 +668,24 @@ module MuxTf
         [status.status, meta]
       end
 
-      def print_validation_errors(info) # rubocop:disable Metrics/AbcSize
+      def print_validation_errors(info)
         return unless (info["error_count"]).positive? || (info["warning_count"]).positive?
 
-        log "Encountered #{Paint[info['error_count'], :red]} Errors and #{Paint[info['warning_count'], :yellow]} Warnings!", depth: 2
+        log "Encountered #{pastel.red(info['error_count'])} Errors and #{pastel.yellow(info['warning_count'])} Warnings!", depth: 2
         info["diagnostics"].each do |dinfo|
           color = dinfo["severity"] == "error" ? :red : :yellow
-          log "#{Paint[dinfo['severity'].capitalize, color]}: #{dinfo['summary']}", depth: 3
-          log dinfo["detail"], depth: 4 if dinfo["detail"]
-          log format_validation_range(dinfo["range"], color), depth: 4 if dinfo["range"]
+          log "#{pastel.decorate(dinfo['severity'].capitalize, color)}: #{dinfo['summary']}", depth: 3
+          log dinfo["detail"].split("\n"), depth: 4 if dinfo["detail"]
+          log format_validation_range(dinfo, color), depth: 4 if dinfo["range"]
         end
       end
 
+      # rubocop:disable Metrics/CyclomaticComplexity, Metrics/MethodLength, Metrics/PerceivedComplexity
       def process_validation(info) # rubocop:disable Metrics/CyclomaticComplexity
         remedies = Set.new
 
         if (info["error_count"]).positive? || (info["warning_count"]).positive?
-          info["diagnostics"].each do |dinfo|
+          info["diagnostics"].each do |dinfo| # rubocop:disable Metrics/BlockLength
             item_handled = false
 
             case dinfo["summary"]
@@ -678,7 +702,15 @@ module MuxTf
                 /Invalid value for input variable/,
                 /Unsupported block type/,
                 /Reference to undeclared input variable/,
-                /Invalid reference/
+                /Invalid reference/,
+                /Unsupported attribute/,
+                /Invalid depends_on reference/
+              remedies << :user_error
+              item_handled = true
+            end
+
+            if dinfo["severity"] == "error" && dinfo["snippet"]
+              # trying something new .. assuming anything with a snippet is a user error
               remedies << :user_error
               item_handled = true
             end
@@ -699,10 +731,12 @@ module MuxTf
 
         remedies
       end
+      # rubocop:enable Metrics/CyclomaticComplexity, Metrics/MethodLength, Metrics/PerceivedComplexity
 
       private
 
-      def format_validation_range(range, color) # rubocop:disable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity, Metrics/MethodLength
+      def format_validation_range(dinfo, color) # rubocop:disable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity, Metrics/MethodLength
+        range = dinfo["range"]
         # filename: "../../../modules/pods/jane_pod/main.tf"
         # start:
         #   line: 151
@@ -728,6 +762,7 @@ module MuxTf
                      end
         output << "on: #{range['filename']} line#{lines.size > 1 ? 's' : ''}: #{lines_info}"
 
+        # TODO: in terragrunt mode, we need to somehow figure out the path to the cache root, all the paths will end up being relative to that
         if File.exist?(range["filename"])
           file_lines = File.read(range["filename"]).split("\n")
           extract_range = (([lines.first - context_lines,
@@ -743,11 +778,24 @@ module MuxTf
                   start_col = columns.last
                 end
                 painted_line = paint_line(line, color, start_col: start_col, end_col: end_col)
-                output << "#{Paint['>', color]} #{index + 1}: #{painted_line}"
+                output << "#{pastel.decorate('>', color)} #{index + 1}: #{painted_line}"
               else
                 output << "  #{index + 1}: #{line}"
               end
             end
+          end
+        elsif dinfo["snippet"]
+          # {
+          #   "context"=>"locals",
+          #   "code"=>"        aws_iam_policy.crossplane_aws_ecr.arn",
+          #   "start_line"=>72,
+          #   "highlight_start_offset"=>8,
+          #   "highlight_end_offset"=>41,
+          #   "values"=>[]
+          # }
+          output << "Code:"
+          dinfo["snippet"]["code"].split("\n").each do |l|
+            output << " > #{l}"
           end
         end
 
@@ -759,7 +807,7 @@ module MuxTf
         prefix = line[0, start_col - 1]
         suffix = line[end_col..]
         middle = line[start_col - 1..end_col - 1]
-        "#{prefix}#{Paint[middle, *paint_options]}#{suffix}"
+        "#{prefix}#{pastel.decorate(middle, *paint_options)}#{suffix}"
       end
     end
   end

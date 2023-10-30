@@ -30,8 +30,10 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
 
   spec.add_dependency "activesupport", "< 7.0.0"
+  spec.add_dependency "awesome_print"
+  spec.add_dependency "diff-lcs"
   spec.add_dependency "dotenv"
-  spec.add_dependency "paint"
+  spec.add_dependency "hashdiff"
   spec.add_dependency "pastel"
   spec.add_dependency "piotrb_cli_utils", "~> 0.1.0"
   spec.add_dependency "stateful_parser", "~> 0.1.1"

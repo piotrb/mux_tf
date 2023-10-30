@@ -6,6 +6,7 @@ module MuxTf
       extend PiotrbCliUtils::Util
       extend PiotrbCliUtils::ShellHelpers
       extend TerraformHelpers
+      import Coloring
 
       class << self
         def run(args)
@@ -33,7 +34,7 @@ module MuxTf
 
           if options[:interactive]
             abort_message = catch(:abort) { plan.run_interactive }
-            log Paint["Aborted: #{abort_message}", :red] if abort_message
+            log pastel.red("Aborted: #{abort_message}") if abort_message
           else
             if options[:hierarchy]
               plan.nested_summary.each do |line|

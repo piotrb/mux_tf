@@ -40,7 +40,7 @@ module MuxTf
       stream_or_run_terraform(cmd, &block)
     end
 
-    def tf_plan(out:, color: true, detailed_exitcode: nil, compact_warnings: false, input: nil, targets: [], json: false, &block)
+    def tf_plan(out:, color: true, detailed_exitcode: nil, compact_warnings: false, input: nil, targets: [], json: false, &block) # rubocop:disable Metrics/CyclomaticComplexity
       args = []
       args += ["-out", out]
       args << "-input=#{input.inspect}" unless input.nil?

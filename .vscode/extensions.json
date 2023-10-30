@@ -1,5 +1,6 @@
 {
   "recommendations": [
-    "lorankloeze.ruby-rubocop-revived"
+    // "lorankloeze.ruby-rubocop-revived"
+    "Shopify.ruby-lsp"
   ]
 }

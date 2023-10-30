@@ -281,7 +281,7 @@ Style/Documentation:
 
 Metrics/AbcSize:
   CountRepeatedAttributes: false
-  Max: 20
+  Max: 30
   AllowedPatterns: ['run', '_cmd$']
 
 Metrics/CyclomaticComplexity:
@@ -309,6 +309,21 @@ Metrics/BlockNesting:
 
 Layout/LineLength:
   Max: 150
+  AllowedPatterns:
+    - '^\s*#'
 
 Style/MultilineBlockChain:
   Enabled: false
+
+Lint/MixedCaseRange: # new in 1.53
+  Enabled: true
+Lint/RedundantRegexpQuantifiers: # new in 1.53
+  Enabled: true
+Style/RedundantCurrentDirectoryInPath: # new in 1.53
+  Enabled: true
+Style/RedundantRegexpArgument: # new in 1.53
+  Enabled: true
+Style/ReturnNilInPredicateMethodDefinition: # new in 1.53
+  Enabled: true
+Style/YAMLFileRead: # new in 1.53
+  Enabled: true

@@ -9,6 +9,7 @@ module MuxTf
       extend PiotrbCliUtils::Util
       extend PiotrbCliUtils::CriCommandSupport
       extend PiotrbCliUtils::CmdLoop
+      include Coloring
 
       class << self # rubocop:disable Metrics/ClassLength
         def run(args)
@@ -19,8 +20,21 @@ module MuxTf
             return
           end
 
+          unless args.empty?
+            root_cmd = build_root_cmd
+            valid_commands = root_cmd.subcommands.map(&:name)
+
+            if args[0] && valid_commands.include?(args[0])
+              stop_reason = catch(:stop) {
+                root_cmd.run(args, {}, hard_exit: true)
+              }
+              log pastel.red("Stopped: #{stop_reason}") if stop_reason
+              return
+            end
+          end
+
           folder_name = File.basename(Dir.getwd)
-          log "Processing #{Paint[folder_name, :cyan]} ..."
+          log "Processing #{pastel.cyan(folder_name)} ..."
 
           ENV["TF_IN_AUTOMATION"] = "1"
           ENV["TF_INPUT"] = "0"
@@ -55,12 +69,12 @@ module MuxTf
         def version_check
           return unless VersionCheck.has_updates?
 
-          log Paint["=" * 80, :yellow]
-          log "New version of #{Paint['mux_tf', :cyan]} is available!"
-          log "You are currently on version: #{Paint[VersionCheck.current_gem_version, :yellow]}"
-          log "Latest version found is: #{Paint[VersionCheck.latest_gem_version, :green]}"
-          log "Run `#{Paint['gem install mux_tf', :green]}` to update!"
-          log Paint["=" * 80, :yellow]
+          log pastel.yellow("=" * 80)
+          log "New version of #{pastel.cyan('mux_tf')} is available!"
+          log "You are currently on version: #{pastel.yellow(VersionCheck.current_gem_version)}"
+          log "Latest version found is: #{pastel.green(VersionCheck.latest_gem_version)}"
+          log "Run `#{pastel.green('gem install mux_tf')}` to update!"
+          log pastel.yellow("=" * 80)
         end
 
         # block is expected to return a touple, the first element is a list of remedies
@@ -94,13 +108,13 @@ module MuxTf
           remedy = nil
           wrap_log = lambda do |msg, color: nil|
             [
-              from ? Paint["#{from} -> ", :cyan] : nil,
-              Paint[remedy ? "[remedy: #{remedy}]" : "[process remedies]", :cyan],
+              from ? pastel.cyan("#{from} -> ") : nil,
+              pastel.cyan(remedy ? "[remedy: #{remedy}]" : "[process remedies]"),
               " ",
-              color ? Paint[msg, color] : msg,
+              color ? pastel.decorate(msg, color) : msg,
               " ",
-              level > 1 ? Paint["[lv #{level}]", :cyan] : nil,
-              retry_count.positive? ? Paint["[try #{retry_count}]", :cyan] : nil
+              level > 1 ? pastel.cyan("[lv #{level}]") : nil,
+              retry_count.positive? ? pastel.cyan("[try #{retry_count}]") : nil
             ].compact.join
           end
           results = {}
@@ -172,7 +186,7 @@ module MuxTf
           when 2
             [:changes, meta]
           else
-            log Paint["terraform plan exited with an unknown exit code: #{exit_code}", :yellow]
+            log pastel.yellow("terraform plan exited with an unknown exit code: #{exit_code}")
             [:unknown, meta]
           end
         end
@@ -182,9 +196,9 @@ module MuxTf
 
           case status
           when :error, :unknown
-            log Paint["Dropping to command line so you can fix the issue!", :red]
+            log pastel.red("Dropping to command line so you can fix the issue!")
           when :changes
-            log Paint["Dropping to command line so you can review the changes.", :yellow]
+            log pastel.yellow("Dropping to command line so you can review the changes.")
           end
           cmd_loop(status)
         end
@@ -199,9 +213,9 @@ module MuxTf
           prompt = "#{folder_name} => "
           case status
           when :error, :unknown
-            prompt = "[#{Paint[status.to_s, :red]}] #{prompt}"
+            prompt = "[#{pastel.red(status.to_s)}] #{prompt}"
           when :changes
-            prompt = "[#{Paint[status.to_s, :yellow]}] #{prompt}"
+            prompt = "[#{pastel.yellow(status.to_s)}] #{prompt}"
           end
 
           run_cmd_loop(prompt) do |cmd|
@@ -228,23 +242,21 @@ module MuxTf
           root_cmd
         end
 
-        def get_plan_summary_text
+        def plan_summary_text
           plan_filename = PlanFilenameGenerator.for_path
           if File.exist?("#{plan_filename}.txt") && File.mtime("#{plan_filename}.txt").to_f >= File.mtime(plan_filename).to_f
             File.read("#{plan_filename}.txt")
           else
-            puts "Inspecting Changes ..."
-            result = tf_show(plan_filename, capture: true)
-            data = result.output
+            puts "Inspecting Changes ... #{plan_filename}"
+            data = PlanUtils.text_version_of_plan_show(plan_filename)
             File.write("#{plan_filename}.txt", data)
-            data.nil?
             data
           end
         end
 
         def plan_details_cmd
           define_cmd("details", summary: "Show Plan Details") do |_opts, _args, _cmd|
-            puts get_plan_summary_text
+            puts plan_summary_text
           end
         end
 
@@ -268,8 +280,8 @@ module MuxTf
 
         def shell_cmd
           define_cmd("shell", summary: "Open your default terminal in the current folder") do |_opts, _args, _cmd|
-            log Paint["Launching shell ...", :yellow]
-            log Paint["When it exits you will be back at this prompt.", :yellow]
+            log pastel.yellow("Launching shell ...")
+            log pastel.yellow("When it exits you will be back at this prompt.")
             system ENV.fetch("SHELL")
           end
         end
@@ -306,15 +318,15 @@ module MuxTf
                 if status.success?
                   log "Done!"
                 else
-                  log Paint["Failed with status: #{status}", :red]
+                  log pastel.red("Failed with status: #{status}")
                 end
 
                 true
               }
 
-              log Paint["Aborted", :yellow] unless done
+              log pastel.yellow("Aborted") unless done
             else
-              log Paint["No lock error or no plan ran!", :red]
+              log pastel.red("No lock error or no plan ran!")
             end
           end
         end
@@ -346,7 +358,7 @@ module MuxTf
             begin
               abort_message = catch(:abort) { plan.run_interactive }
               if abort_message
-                log Paint["Aborted: #{abort_message}", :red]
+                log pastel.red("Aborted: #{abort_message}")
               else
                 run_plan
               end
@@ -359,8 +371,8 @@ module MuxTf
 
         def print_errors_and_warnings(meta) # rubocop:disable Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity, Metrics/AbcSize
           message = []
-          message << Paint["#{meta[:warnings].length} Warnings", :yellow] if meta[:warnings]
-          message << Paint["#{meta[:errors].length} Errors", :red] if meta[:errors]
+          message << pastel.yellow("#{meta[:warnings].length} Warnings") if meta[:warnings]
+          message << pastel.red("#{meta[:errors].length} Errors") if meta[:errors]
           if message.length.positive?
             log ""
             log "Encountered: #{message.join(' and ')}"
@@ -369,18 +381,18 @@ module MuxTf
 
           meta[:warnings]&.each do |warning|
             log "-" * 20
-            log Paint["Warning: #{warning[:message]}", :yellow]
+            log pastel.yellow("Warning: #{warning[:message]}")
             warning[:body]&.each do |line|
-              log Paint[line, :yellow], depth: 1
+              log pastel.yellow(line), depth: 1
             end
             log ""
           end
 
           meta[:errors]&.each do |error|
             log "-" * 20
-            log Paint["Error: #{error[:message]}", :red]
+            log pastel.red("Error: #{error[:message]}")
             error[:body]&.each do |line|
-              log Paint[line, :red], depth: 1
+              log pastel.red(line), depth: 1
             end
             log ""
           end
@@ -440,6 +452,7 @@ module MuxTf
               log "Printing Plan Summary ...", depth: 1
               pretty_plan_summary(plan_filename)
             end
+            puts plan_summary_text if ENV["JSON_PLAN"]
           when :unknown
             # nothing
           end
@@ -458,7 +471,7 @@ module MuxTf
           when 1
             [:error, meta]
           else
-            log Paint["terraform init upgrade exited with an unknown exit code: #{exit_code}", :yellow]
+            log pastel.yellow("terraform init upgrade exited with an unknown exit code: #{exit_code}")
             [:unknown, meta]
           end
         end
