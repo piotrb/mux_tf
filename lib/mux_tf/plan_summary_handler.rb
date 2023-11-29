@@ -75,7 +75,7 @@ module MuxTf
         pastel.decorate(symbol, color)
       end
 
-      def self.format_address(address)
+      def format_address(address)
         result = []
         parts = ResourceTokenizer.tokenize(address)
         parts.each_with_index do |(part_type, part_value), index|
