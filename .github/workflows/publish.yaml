@@ -44,10 +44,9 @@ jobs:
     - name: Cleanup on Error
       if: failure()
       run: |
-        # optionally remove the tag that was generated and possibly pushed
         TAG=$(git tag --points-at HEAD)
         if [[ "" == "$TAG" ]]; then
-          # no tag, do nothing
+          echo "no tag at head, nothing to clean up"
         else
           git tag -d "$TAG"
           git push origin ":$TAG" || true
