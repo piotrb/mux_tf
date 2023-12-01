@@ -12,6 +12,10 @@ jobs:
       if: github.ref != 'refs/heads/master'
       run: "false"
 
+    - uses: rubygems/configure-rubygems-credentials@main
+      with:
+        role-to-assume: ${{secrets.RUBYGEMS_ROLE_TO_ASSUME}}
+
     - name: Checkout code
       uses: actions/checkout@v2
 
@@ -30,11 +34,8 @@ jobs:
         git config --global user.email "github-actions@github.com"
         git config --global user.name "GitHub Actions"
         mkdir -p ~/.gem
-        cat << EOF > ~/.gem/credentials
-        ---
-        :github: Bearer ${{secrets.GITHUB_TOKEN}}
-        :rubygems_api_key: ${{secrets.RUBYGEMS_PUBLISH_KEY}}
-        EOF
+        touch ~/.gem/credentials
+        echo ":github: Bearer ${{secrets.GITHUB_TOKEN}}" >> ~/.gem/credentials
         chmod 0600 ~/.gem/credentials
 
     - name: Release
