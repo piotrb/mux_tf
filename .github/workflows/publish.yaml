@@ -3,6 +3,10 @@ name: Publish to Rubygems
 on:
   workflow_dispatch: {}
 
+permissions:
+  contents: write
+  id-token: write
+
 jobs:
   publish:
     runs-on: ubuntu-latest
