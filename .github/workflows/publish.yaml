@@ -19,6 +19,8 @@ jobs:
     - uses: rubygems/configure-rubygems-credentials@main
       with:
         role-to-assume: ${{secrets.RUBYGEMS_ROLE_TO_ASSUME}}
+        gem-server: 'https://oidc-api-token.rubygems.org'
+        audience: 'https://oidc-api-token.rubygems.org'
 
     - name: Checkout code
       uses: actions/checkout@v2
