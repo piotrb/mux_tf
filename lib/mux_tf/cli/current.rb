@@ -87,7 +87,7 @@ module MuxTf
               return results if remedies.empty?
 
               remedy_status, _remedy_results = process_remedies(remedies, from: from, level: level)
-              return unless remedy_status
+              return remedy_status if remedy_status
             end
             log "!! giving up because attempt: #{attempt}"
           end
@@ -162,6 +162,10 @@ module MuxTf
             log wrap_log["-" * 40, color: :red]
             return [false, results]
           end
+
+          # if there is warnings, but no other remedies .. then we assume all is ok
+          return [true, results] if remedies.delete?(:user_warning) && remedies.empty?
+
           unless remedies.empty?
             remedy = nil
             log wrap_log["Unprocessed remedies: #{remedies.to_a}", color: :red], depth: 1 if level == 1

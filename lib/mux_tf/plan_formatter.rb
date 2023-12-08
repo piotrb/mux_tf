@@ -470,8 +470,11 @@ module MuxTf
         remedies = Set.new
         if status != 0
           remedies << :reconfigure if meta[:need_reconfigure]
-          meta[:errors].each do |error|
-            remedies << :add_provider_constraint if error[:body].grep(/Could not retrieve the list of available versions for provider/)
+          log "!! expected meta[:errors] to be set, how did we get here?" unless meta[:errors]
+          if meta[:errors]
+            meta[:errors].each do |error|
+              remedies << :add_provider_constraint if error[:body].grep(/Could not retrieve the list of available versions for provider/)
+            end
           end
           if remedies.empty?
             log "!! don't know how to generate init remedies for this"
@@ -718,6 +721,11 @@ module MuxTf
             case dinfo["detail"]
             when /timeout while waiting for plugin to start/
               remedies << :init
+              item_handled = true
+            end
+
+            if dinfo["severity"] == "warning"
+              remedies << :user_warning
               item_handled = true
             end
 
