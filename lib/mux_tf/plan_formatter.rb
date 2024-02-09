@@ -396,6 +396,9 @@ module MuxTf
             when :none
               if line.blank?
                 # nothing
+              elsif raw_line.match(/Error when retrieving token from sso/) || raw_line.match(/Error loading SSO Token/)
+                meta[:need_auth] = true
+                log pastel.red("authentication problem"), depth: 2
               else
                 log_unhandled_line(state, line, reason: "unexpected non blank line in :none state")
               end
@@ -470,6 +473,7 @@ module MuxTf
         remedies = Set.new
         if status != 0
           remedies << :reconfigure if meta[:need_reconfigure]
+          remedies << :auth if meta[:need_auth]
           log "!! expected meta[:errors] to be set, how did we get here?" unless meta[:errors]
           if meta[:errors]
             meta[:errors].each do |error|
@@ -544,10 +548,12 @@ module MuxTf
         parser.state(:backend, /^Initializing the backend\.\.\./, [:none, :modules_init, :modules_upgrade])
         parser.state(:plugins, /^Initializing provider plugins\.\.\./, [:backend, :modules_init])
 
+        parser.state(:backend_error, /Error when retrieving token from sso/, [:backend])
+
         parser.state(:plugin_warnings, /^$/, [:plugins])
         parser.state(:backend_error, /Error:/, [:backend])
 
-        setup_error_handling(parser, from_states: [:plugins])
+        setup_error_handling(parser, from_states: [:plugins, :modules_init])
 
         status = tf_init(upgrade: upgrade, reconfigure: reconfigure) { |raw_line|
           stripped_line = pastel.strip(raw_line.rstrip)
@@ -612,6 +618,10 @@ module MuxTf
               if raw_line.match "terraform init -reconfigure"
                 meta[:need_reconfigure] = true
                 log pastel.red("module needs to be reconfigured"), depth: 2
+              end
+              if raw_line.match "Error when retrieving token from sso"
+                meta[:need_auth] = true
+                log pastel.red("authentication problem"), depth: 2
               end
             when :plugins
               if phase != state

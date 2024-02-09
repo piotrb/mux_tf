@@ -162,6 +162,14 @@ module MuxTf
             log wrap_log["-" * 40, color: :red]
             return [false, results]
           end
+          if remedies.delete? :auth
+            remedy = :auth
+            log wrap_log["auth error encountered!", color: :red]
+            log wrap_log["-" * 40, color: :red]
+            log wrap_log["!! Auth Error, Please fix the issue and try again", color: :red]
+            log wrap_log["-" * 40, color: :red]
+            return [false, results]
+          end
 
           # if there is warnings, but no other remedies .. then we assume all is ok
           return [true, results] if remedies.delete?(:user_warning) && remedies.empty?
@@ -412,6 +420,7 @@ module MuxTf
             remedies << :plan if error[:message].include?("timeout while waiting for plugin to start")
           end
           remedies << :unlock if lock_error?(meta)
+          remedies << :auth if meta[:need_auth]
           remedies
         end
 
@@ -442,6 +451,8 @@ module MuxTf
               @last_lock_info = extract_lock_info(meta)
               throw :abort, [plan_status, meta]
             end
+
+            throw :abort, [plan_status, meta] if remedies.include?(:auth)
 
             [remedies, plan_status, meta]
           }
