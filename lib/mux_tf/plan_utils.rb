@@ -104,6 +104,9 @@ module MuxTf
         else
           false
         end
+      rescue Psych::DisallowedClass => e
+        ap e
+        false
       rescue Psych::SyntaxError => e
         ap e
         false
@@ -115,6 +118,10 @@ module MuxTf
           pastel.green(symbol)
         when "~"
           pastel.yellow(symbol)
+        when "-"
+          pastel.red(symbol)
+        when "?"
+          pastel.orange(symbol)
         else
           warning "Unknown symbol: #{symbol.inspect}"
           symbol
@@ -251,12 +258,21 @@ module MuxTf
 
       def get_pretty_action_and_symbol(actions)
         case actions
+        when ["delete"]
+          pretty_action = "delete"
+          symbol = "-"
         when ["update"]
           pretty_action = "updated in-place"
           symbol = "~"
         when ["create"]
           pretty_action = "created"
           symbol = "+"
+        when %w[delete create]
+          pretty_action = "replaced (delete first)"
+          symbol = "±"
+        when ["read"]
+          pretty_action = "read"
+          symbol = ">"
         else
           warning "Unknown action: #{actions.inspect}"
           pretty_action = actions.inspect

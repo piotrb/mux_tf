@@ -396,6 +396,10 @@ module MuxTf
             when :none
               if line.blank?
                 # nothing
+              elsif raw_line.match(/^time=(?<timestamp>[^ ]+) level=(?<level>[^ ]+) msg=(?<message>.+?)(?: prefix=\[(?<prefix>.+?)\])?\s*$/)
+                message = $LAST_MATCH_INFO["msg"]
+                message += " [prefix=#{$LAST_MATCH_INFO['prefix']}]" if $LAST_MATCH_INFO["prefix"]
+                log pastel.yellow(message), depth: 2
               elsif raw_line.match(/Error when retrieving token from sso/) || raw_line.match(/Error loading SSO Token/)
                 meta[:need_auth] = true
                 log pastel.red("authentication problem"), depth: 2
