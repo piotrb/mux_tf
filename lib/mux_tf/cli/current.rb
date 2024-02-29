@@ -15,6 +15,10 @@ module MuxTf
         def run(args)
           version_check
 
+          ENV["TF_IN_AUTOMATION"] = "1"
+          ENV["TF_INPUT"] = "0"
+          ENV["TERRAGRUNT_JSON_LOG"] = "1"
+
           if args[0] == "cli"
             cmd_loop
             return
@@ -35,9 +39,6 @@ module MuxTf
 
           folder_name = File.basename(Dir.getwd)
           log "Processing #{pastel.cyan(folder_name)} ..."
-
-          ENV["TF_IN_AUTOMATION"] = "1"
-          ENV["TF_INPUT"] = "0"
 
           return launch_cmd_loop(:error) unless run_validate
 
@@ -186,7 +187,7 @@ module MuxTf
 
         def validate
           log "Validating module ...", depth: 1
-          tf_validate.parsed_output
+          tf_validate
         end
 
         def create_plan(filename, targets: [])

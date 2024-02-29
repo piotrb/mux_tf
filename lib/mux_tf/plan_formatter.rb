@@ -84,8 +84,8 @@ module MuxTf
         status = tf_plan(out: out, detailed_exitcode: true, color: true, compact_warnings: false, json: true, input: false,
                          targets: targets) { |(stream, raw_line)|
           case stream
-          # when :command
-          #   puts raw_line
+          when :command
+            log "Running command: #{raw_line.strip} ...", depth: 2
           when :stdout
             parsed_line = JSON.parse(raw_line)
             parsed_line.keys.each do |key| # rubocop:disable Style/HashEachMethods -- intentional, allow adding keys to hash while iterating
@@ -388,86 +388,89 @@ module MuxTf
 
         last_state = nil
 
-        status = tf_plan(out: filename, detailed_exitcode: true, compact_warnings: true, targets: targets) { |raw_line|
-          parser.parse(raw_line.rstrip) do |state, line|
-            first_in_state = last_state != state
+        status = tf_plan(out: filename, detailed_exitcode: true, compact_warnings: true, targets: targets, split_streams: true) { |(stream, raw_line)|
+          case stream
+          when :command
+            log "Running command: #{raw_line.strip} ...", depth: 2
+          when :stderr
+            handle_stderr_line(raw_line)
+          when :stdout
+            parser.parse(raw_line.rstrip) do |state, line|
+              first_in_state = last_state != state
 
-            case state
-            when :none
-              if line.blank?
+              case state
+              when :none
+                if line.blank?
                 # nothing
-              elsif raw_line.match(/^time=(?<timestamp>[^ ]+) level=(?<level>[^ ]+) msg=(?<message>.+?)(?: prefix=\[(?<prefix>.+?)\])?\s*$/)
-                message = $LAST_MATCH_INFO["msg"]
-                message += " [prefix=#{$LAST_MATCH_INFO['prefix']}]" if $LAST_MATCH_INFO["prefix"]
-                log pastel.yellow(message), depth: 2
-              elsif raw_line.match(/Error when retrieving token from sso/) || raw_line.match(/Error loading SSO Token/)
-                meta[:need_auth] = true
-                log pastel.red("authentication problem"), depth: 2
-              else
-                log_unhandled_line(state, line, reason: "unexpected non blank line in :none state")
-              end
-            when :reading
-              clean_line = pastel.strip(line)
-              if clean_line.match(/^(.+): Reading...$/)
-                log "Reading: #{$LAST_MATCH_INFO[1]} ...", depth: 2
-              elsif clean_line.match(/^(.+): Read complete after ([^\[]+)(?: \[(.+)\])?$/)
-                if $LAST_MATCH_INFO[3]
-                  log "Reading Complete: #{$LAST_MATCH_INFO[1]} after #{$LAST_MATCH_INFO[2]} [#{$LAST_MATCH_INFO[3]}]", depth: 3
+                elsif raw_line.match(/Error when retrieving token from sso/) || raw_line.match(/Error loading SSO Token/)
+                  meta[:need_auth] = true
+                  log pastel.red("authentication problem"), depth: 2
                 else
-                  log "Reading Complete: #{$LAST_MATCH_INFO[1]} after #{$LAST_MATCH_INFO[2]}", depth: 3
+                  log_unhandled_line(state, line, reason: "unexpected non blank line in :none state")
                 end
-              else
-                log_unhandled_line(state, line, reason: "unexpected line in :reading state")
-              end
-            when :info
-              if /Acquiring state lock. This may take a few moments.../.match?(line)
-                log "Acquiring state lock ...", depth: 2
-              else
-                log_unhandled_line(state, line, reason: "unexpected line in :info state")
-              end
-            when :plan_error
-              case pastel.strip(line)
-              when ""
-                # skip empty line
-              when /Releasing state lock. This may take a few moments"/
+              when :reading
+                clean_line = pastel.strip(line)
+                if clean_line.match(/^(.+): Reading...$/)
+                  log "Reading: #{$LAST_MATCH_INFO[1]} ...", depth: 2
+                elsif clean_line.match(/^(.+): Read complete after ([^\[]+)(?: \[(.+)\])?$/)
+                  if $LAST_MATCH_INFO[3]
+                    log "Reading Complete: #{$LAST_MATCH_INFO[1]} after #{$LAST_MATCH_INFO[2]} [#{$LAST_MATCH_INFO[3]}]", depth: 3
+                  else
+                    log "Reading Complete: #{$LAST_MATCH_INFO[1]} after #{$LAST_MATCH_INFO[2]}", depth: 3
+                  end
+                else
+                  log_unhandled_line(state, line, reason: "unexpected line in :reading state")
+                end
+              when :info
+                if /Acquiring state lock. This may take a few moments.../.match?(line)
+                  log "Acquiring state lock ...", depth: 2
+                else
+                  log_unhandled_line(state, line, reason: "unexpected line in :info state")
+                end
+              when :plan_error
+                case pastel.strip(line)
+                when ""
+                  # skip empty line
+                when /Releasing state lock. This may take a few moments"/
+                  log line, depth: 2
+                when /Planning failed./ # rubocop:disable Lint/DuplicateBranch
+                  log line, depth: 2
+                else
+                  log_unhandled_line(state, line, reason: "unexpected line in :plan_error state")
+                end
+              when :error_lock_info
+                meta["error"] = "lock"
+                meta[$LAST_MATCH_INFO[1]] = $LAST_MATCH_INFO[2] if line =~ /([A-Z]+\S+)+:\s+(.+)$/
+                clean_line = pastel.strip(line).gsub(/^│ /, "")
+                if clean_line == ""
+                  meta[:current_error][:body] << clean_line if meta[:current_error][:body].last != ""
+                else
+                  meta[:current_error][:body] << clean_line
+                end
+              when :refreshing
+                if first_in_state
+                  log "Refreshing state ", depth: 2, newline: false
+                else
+                  print "."
+                end
+              when :plan_legend
+                puts if first_in_state
                 log line, depth: 2
-              when /Planning failed./ # rubocop:disable Lint/DuplicateBranch
+              when :refresh_done
+                puts if first_in_state
+              when :plan_info # rubocop:disable Lint/DuplicateBranch
+                puts if first_in_state
+                log line, depth: 2
+              when :output_info # rubocop:disable Lint/DuplicateBranch
+                puts if first_in_state
+                log line, depth: 2
+              when :plan_summary
                 log line, depth: 2
               else
-                log_unhandled_line(state, line, reason: "unexpected line in :plan_error state")
+                log_unhandled_line(state, line, reason: "unexpected state") unless handle_error_states(meta, state, line)
               end
-            when :error_lock_info
-              meta["error"] = "lock"
-              meta[$LAST_MATCH_INFO[1]] = $LAST_MATCH_INFO[2] if line =~ /([A-Z]+\S+)+:\s+(.+)$/
-              clean_line = pastel.strip(line).gsub(/^│ /, "")
-              if clean_line == ""
-                meta[:current_error][:body] << clean_line if meta[:current_error][:body].last != ""
-              else
-                meta[:current_error][:body] << clean_line
-              end
-            when :refreshing
-              if first_in_state
-                log "Refreshing state ", depth: 2, newline: false
-              else
-                print "."
-              end
-            when :plan_legend
-              puts if first_in_state
-              log line, depth: 2
-            when :refresh_done
-              puts if first_in_state
-            when :plan_info # rubocop:disable Lint/DuplicateBranch
-              puts if first_in_state
-              log line, depth: 2
-            when :output_info # rubocop:disable Lint/DuplicateBranch
-              puts if first_in_state
-              log line, depth: 2
-            when :plan_summary
-              log line, depth: 2
-            else
-              log_unhandled_line(state, line, reason: "unexpected state") unless handle_error_states(meta, state, line)
+              last_state = state
             end
-            last_state = state
           end
         }
         [status.status, meta]
@@ -559,125 +562,131 @@ module MuxTf
 
         setup_error_handling(parser, from_states: [:plugins, :modules_init])
 
-        status = tf_init(upgrade: upgrade, reconfigure: reconfigure) { |raw_line|
-          stripped_line = pastel.strip(raw_line.rstrip)
+        status = tf_init(upgrade: upgrade, reconfigure: reconfigure) { |(stream, raw_line)|
+          case stream
+          when :command
+            log "Running command: #{raw_line.strip} ...", depth: 2
+          when :stderr
+            handle_stderr_line(raw_line)
+          when :stdout
+            stripped_line = pastel.strip(raw_line.rstrip)
+            parser.parse(raw_line.rstrip) do |state, line|
+              case state
+              when :modules_init
+                if phase != state
+                  phase = state
+                  log "Initializing modules ", depth: 1
+                  next
+                end
+                case stripped_line
+                when /^Downloading (?<repo>[^ ]+) (?<version>[^ ]+) for (?<module>[^ ]+)\.\.\./
+                  print "D"
+                when /^Downloading (?<repo>[^ ]+) for (?<module>[^ ]+)\.\.\./ # rubocop:disable Lint/DuplicateBranch
+                  print "D"
+                when /^- (?<module>[^ ]+) in (?<path>.+)$/
+                  print "."
+                when ""
+                  puts
+                else
+                  log_unhandled_line(state, line, reason: "unexpected line in :modules_init state")
+                end
+              when :modules_upgrade
+                if phase != state
+                  # first line
+                  phase = state
+                  log "Upgrding modules ", depth: 1, newline: false
+                  next
+                end
+                case stripped_line
+                when /^- (?<module>[^ ]+) in (?<path>.+)$/
+                  print "."
+                when /^Downloading (?<repo>[^ ]+) (?<version>[^ ]+) for (?<module>[^ ]+)\.\.\./
+                  print "D"
+                when /^Downloading (?<repo>[^ ]+) for (?<module>[^ ]+)\.\.\./ # rubocop:disable Lint/DuplicateBranch
+                  print "D"
+                when ""
+                  puts
+                else
+                  log_unhandled_line(state, line, reason: "unexpected line in :modules_upgrade state")
+                end
+              when :backend
+                if phase != state
+                  # first line
+                  phase = state
+                  log "Initializing the backend ", depth: 1 # , newline: false
+                  next
+                end
+                case stripped_line
+                when /^Successfully configured/
+                  log line, depth: 2
+                when /unless the backend/ # rubocop:disable Lint/DuplicateBranch
+                  log line, depth: 2
+                when ""
+                  puts
+                else
+                  log_unhandled_line(state, line, reason: "unexpected line in :backend state")
+                end
+              when :backend_error
+                if raw_line.match "terraform init -reconfigure"
+                  meta[:need_reconfigure] = true
+                  log pastel.red("module needs to be reconfigured"), depth: 2
+                end
+                if raw_line.match "Error when retrieving token from sso"
+                  meta[:need_auth] = true
+                  log pastel.red("authentication problem"), depth: 2
+                end
+              when :plugins
+                if phase != state
+                  # first line
+                  phase = state
+                  log "Initializing provider plugins ...", depth: 1
+                  next
+                end
+                case stripped_line
+                when /^- Reusing previous version of (?<module>.+) from the dependency lock file$/
+                  info = $LAST_MATCH_INFO.named_captures
+                  log "- [FROM-LOCK] #{info['module']}", depth: 2
+                when /^- (?<module>.+) is built in to Terraform$/
+                  info = $LAST_MATCH_INFO.named_captures
+                  log "- [BUILTIN] #{info['module']}", depth: 2
+                when /^- Finding (?<module>[^ ]+) versions matching "(?<version>.+)"\.\.\./
+                  info = $LAST_MATCH_INFO.named_captures
+                  log "- [FIND] #{info['module']} matching #{info['version'].inspect}", depth: 2
+                when /^- Finding latest version of (?<module>.+)\.\.\.$/
+                  info = $LAST_MATCH_INFO.named_captures
+                  log "- [FIND] #{info['module']}", depth: 2
+                when /^- Installing (?<module>[^ ]+) v(?<version>.+)\.\.\.$/
+                  info = $LAST_MATCH_INFO.named_captures
+                  log "- [INSTALLING] #{info['module']} v#{info['version']}", depth: 2
+                when /^- Installed (?<module>[^ ]+) v(?<version>.+) \(signed by(?: a)? (?<signed>.+)\)$/
+                  info = $LAST_MATCH_INFO.named_captures
+                  log "- [INSTALLED] #{info['module']} v#{info['version']} (#{info['signed']})", depth: 2
+                when /^- Using previously-installed (?<module>[^ ]+) v(?<version>.+)$/
+                  info = $LAST_MATCH_INFO.named_captures
+                  log "- [USING] #{info['module']} v#{info['version']}", depth: 2
+                when /^- Downloading plugin for provider "(?<provider>[^"]+)" \((?<provider_path>[^)]+)\) (?<version>.+)\.\.\.$/
+                  info = $LAST_MATCH_INFO.named_captures
+                  log "- #{info['provider']} #{info['version']}", depth: 2
+                when "- Checking for available provider plugins..."
+                  # noop
+                else
+                  log_unhandled_line(state, line, reason: "unexpected line in :plugins state")
+                end
+              when :plugin_warnings
+                if phase != state
+                  # first line
+                  phase = state
+                  next
+                end
 
-          parser.parse(raw_line.rstrip) do |state, line|
-            case state
-            when :modules_init
-              if phase != state
-                phase = state
-                log "Initializing modules ", depth: 1
-                next
-              end
-              case stripped_line
-              when /^Downloading (?<repo>[^ ]+) (?<version>[^ ]+) for (?<module>[^ ]+)\.\.\./
-                print "D"
-              when /^Downloading (?<repo>[^ ]+) for (?<module>[^ ]+)\.\.\./ # rubocop:disable Lint/DuplicateBranch
-                print "D"
-              when /^- (?<module>[^ ]+) in (?<path>.+)$/
-                print "."
-              when ""
-                puts
-              else
-                log_unhandled_line(state, line, reason: "unexpected line in :modules_init state")
-              end
-            when :modules_upgrade
-              if phase != state
-                # first line
-                phase = state
-                log "Upgrding modules ", depth: 1, newline: false
-                next
-              end
-              case stripped_line
-              when /^- (?<module>[^ ]+) in (?<path>.+)$/
-                print "."
-              when /^Downloading (?<repo>[^ ]+) (?<version>[^ ]+) for (?<module>[^ ]+)\.\.\./
-                print "D"
-              when /^Downloading (?<repo>[^ ]+) for (?<module>[^ ]+)\.\.\./ # rubocop:disable Lint/DuplicateBranch
-                print "D"
-              when ""
-                puts
-              else
-                log_unhandled_line(state, line, reason: "unexpected line in :modules_upgrade state")
-              end
-            when :backend
-              if phase != state
-                # first line
-                phase = state
-                log "Initializing the backend ", depth: 1 # , newline: false
-                next
-              end
-              case stripped_line
-              when /^Successfully configured/
-                log line, depth: 2
-              when /unless the backend/ # rubocop:disable Lint/DuplicateBranch
-                log line, depth: 2
-              when ""
-                puts
-              else
-                log_unhandled_line(state, line, reason: "unexpected line in :backend state")
-              end
-            when :backend_error
-              if raw_line.match "terraform init -reconfigure"
-                meta[:need_reconfigure] = true
-                log pastel.red("module needs to be reconfigured"), depth: 2
-              end
-              if raw_line.match "Error when retrieving token from sso"
-                meta[:need_auth] = true
-                log pastel.red("authentication problem"), depth: 2
-              end
-            when :plugins
-              if phase != state
-                # first line
-                phase = state
-                log "Initializing provider plugins ...", depth: 1
-                next
-              end
-              case stripped_line
-              when /^- Reusing previous version of (?<module>.+) from the dependency lock file$/
-                info = $LAST_MATCH_INFO.named_captures
-                log "- [FROM-LOCK] #{info['module']}", depth: 2
-              when /^- (?<module>.+) is built in to Terraform$/
-                info = $LAST_MATCH_INFO.named_captures
-                log "- [BUILTIN] #{info['module']}", depth: 2
-              when /^- Finding (?<module>[^ ]+) versions matching "(?<version>.+)"\.\.\./
-                info = $LAST_MATCH_INFO.named_captures
-                log "- [FIND] #{info['module']} matching #{info['version'].inspect}", depth: 2
-              when /^- Finding latest version of (?<module>.+)\.\.\.$/
-                info = $LAST_MATCH_INFO.named_captures
-                log "- [FIND] #{info['module']}", depth: 2
-              when /^- Installing (?<module>[^ ]+) v(?<version>.+)\.\.\.$/
-                info = $LAST_MATCH_INFO.named_captures
-                log "- [INSTALLING] #{info['module']} v#{info['version']}", depth: 2
-              when /^- Installed (?<module>[^ ]+) v(?<version>.+) \(signed by(?: a)? (?<signed>.+)\)$/
-                info = $LAST_MATCH_INFO.named_captures
-                log "- [INSTALLED] #{info['module']} v#{info['version']} (#{info['signed']})", depth: 2
-              when /^- Using previously-installed (?<module>[^ ]+) v(?<version>.+)$/
-                info = $LAST_MATCH_INFO.named_captures
-                log "- [USING] #{info['module']} v#{info['version']}", depth: 2
-              when /^- Downloading plugin for provider "(?<provider>[^"]+)" \((?<provider_path>[^)]+)\) (?<version>.+)\.\.\.$/
-                info = $LAST_MATCH_INFO.named_captures
-                log "- #{info['provider']} #{info['version']}", depth: 2
-              when "- Checking for available provider plugins..."
-                # noop
-              else
-                log_unhandled_line(state, line, reason: "unexpected line in :plugins state")
-              end
-            when :plugin_warnings
-              if phase != state
-                # first line
-                phase = state
-                next
-              end
+                log pastel.yellow(line), depth: 1
+              when :none
+                next if line == ""
 
-              log pastel.yellow(line), depth: 1
-            when :none
-              next if line == ""
-
-              log_unhandled_line(state, line, reason: "unexpected line in :none state")
-            else
-              log_unhandled_line(state, line, reason: "unexpected state") unless handle_error_states(meta, state, line)
+                log_unhandled_line(state, line, reason: "unexpected line in :none state")
+              else
+                log_unhandled_line(state, line, reason: "unexpected state") unless handle_error_states(meta, state, line)
+              end
             end
           end
         }
