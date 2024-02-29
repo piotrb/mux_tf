@@ -250,6 +250,7 @@ module MuxTf
           root_cmd.add_command(reconfigure_cmd)
           root_cmd.add_command(interactive_cmd)
           root_cmd.add_command(plan_details_cmd)
+          root_cmd.add_command(init_cmd)
 
           root_cmd.add_command(exit_cmd)
           root_cmd.add_command(define_cmd("help", summary: "Show help for commands") { |_opts, _args, cmd| puts cmd.supercommand.help })
@@ -341,6 +342,17 @@ module MuxTf
               log pastel.yellow("Aborted") unless done
             else
               log pastel.red("No lock error or no plan ran!")
+            end
+          end
+        end
+
+        def init_cmd
+          define_cmd("init", summary: "Re-run init") do |_opts, _args, _cmd|
+            exit_code, meta = PlanFormatter.run_tf_init
+            print_errors_and_warnings(meta)
+            if exit_code != 0
+              log meta.inspect unless meta.empty?
+              log "Init Failed!"
             end
           end
         end
