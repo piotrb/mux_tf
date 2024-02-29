@@ -47,9 +47,19 @@ module MuxTf
     end
 
     def handle_stderr_line(raw_line)
+      return if raw_line.strip.empty?
+
+      if raw_line =~ /Error when retrieving token from sso: Token has expired and refresh failed/
+        log "#{pastel.red('error')}: SSO Session expired.", depth: 2
+        return
+      end
+
       # assuming that stderr is JSON and TG logs
       parsed_line = JSON.parse(raw_line)
       log format_tg_log_line(parsed_line), depth: 2
+    rescue JSON::ParserError => e
+      log "#{pastel.red('error')}: failed to parse JSON: #{e.message}", depth: 2
+      log raw_line, depth: 2
     end
 
     def tf_validate
@@ -67,6 +77,8 @@ module MuxTf
           handle_stderr_line(raw_line)
         end
       end
+
+      throw :abort, false if stdout.strip.empty?
 
       JSON.parse(stdout)
     end
