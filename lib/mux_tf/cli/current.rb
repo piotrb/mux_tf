@@ -86,7 +86,8 @@ module MuxTf
               remedies, *results = block.call
               return results if remedies.empty?
 
-              remedy_status, _remedy_results = process_remedies(remedies, from: from, level: level)
+              remedy_status, remedy_results = process_remedies(remedies, from: from, level: level)
+              throw :abort, false if remedy_results[:user_error]
               return remedy_status if remedy_status
             end
             log "!! giving up because attempt: #{attempt}"
@@ -160,6 +161,7 @@ module MuxTf
             log wrap_log["-" * 40, color: :red]
             log wrap_log["!! User Error, Please fix the issue and try again", color: :red]
             log wrap_log["-" * 40, color: :red]
+            results[:user_error] = true
             return [false, results]
           end
           if remedies.delete? :auth
