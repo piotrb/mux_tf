@@ -6,7 +6,7 @@ module MuxTf
       extend PiotrbCliUtils::Util
       extend PiotrbCliUtils::ShellHelpers
       extend TerraformHelpers
-      import Coloring
+      include Coloring
 
       class << self
         def run(args)

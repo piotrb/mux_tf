@@ -388,12 +388,14 @@ module MuxTf
 
         last_state = nil
 
+        stderr_handler = StderrLineHandler.new(operation: :plan)
+
         status = tf_plan(out: filename, detailed_exitcode: true, compact_warnings: true, targets: targets, split_streams: true) { |(stream, raw_line)|
           case stream
           when :command
             log "Running command: #{raw_line.strip} ...", depth: 2
           when :stderr
-            handle_stderr_line(raw_line)
+            stderr_handler.handle(raw_line)
           when :stdout
             parser.parse(raw_line.rstrip) do |state, line|
               first_in_state = last_state != state
@@ -473,6 +475,9 @@ module MuxTf
             end
           end
         }
+
+        stderr_handler.flush
+
         [status.status, meta]
       end
 
@@ -482,10 +487,8 @@ module MuxTf
           remedies << :reconfigure if meta[:need_reconfigure]
           remedies << :auth if meta[:need_auth]
           log "!! expected meta[:errors] to be set, how did we get here?" unless meta[:errors]
-          if meta[:errors]
-            meta[:errors].each do |error|
-              remedies << :add_provider_constraint if error[:body].grep(/Could not retrieve the list of available versions for provider/)
-            end
+          meta[:errors]&.each do |error|
+            remedies << :add_provider_constraint if error[:body].grep(/Could not retrieve the list of available versions for provider/)
           end
           if remedies.empty?
             log "!! don't know how to generate init remedies for this"
@@ -562,12 +565,14 @@ module MuxTf
 
         setup_error_handling(parser, from_states: [:plugins, :modules_init])
 
+        stderr_handler = StderrLineHandler.new(operation: :init)
+
         status = tf_init(upgrade: upgrade, reconfigure: reconfigure) { |(stream, raw_line)|
           case stream
           when :command
             log "Running command: #{raw_line.strip} ...", depth: 2
           when :stderr
-            handle_stderr_line(raw_line)
+            stderr_handler.handle(raw_line)
           when :stdout
             stripped_line = pastel.strip(raw_line.rstrip)
             parser.parse(raw_line.rstrip) do |state, line|
@@ -690,6 +695,8 @@ module MuxTf
             end
           end
         }
+
+        stderr_handler.flush
 
         [status.status, meta]
       end

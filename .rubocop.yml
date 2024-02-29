@@ -286,11 +286,11 @@ Metrics/AbcSize:
 
 Metrics/CyclomaticComplexity:
   AllowedPatterns: ['run', '_cmd$']
-  Max: 8
+  Max: 10
 
 Metrics/PerceivedComplexity:
   AllowedPatterns: ['run', '_cmd$']
-  Max: 9
+  Max: 10
 
 Style/DoubleNegation:
   Enabled: false

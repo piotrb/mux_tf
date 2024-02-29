@@ -94,7 +94,7 @@ module MuxTf
       end
     end
 
-    def initialize(data) # rubocop:disable Metrics/AbcSize, Metrics/MethodLength, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
+    def initialize(data) # rubocop:disable Metrics/AbcSize, Metrics/MethodLength, Metrics/CyclomaticComplexity
       @parts = []
 
       data["output_changes"]&.each do |output_name, v|
@@ -265,7 +265,7 @@ module MuxTf
       result
     end
 
-    def nested_summary # rubocop:disable Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
+    def nested_summary # rubocop:disable Metrics/PerceivedComplexity
       result = []
       parts = resource_parts.deep_dup
       until parts.empty?

@@ -6,7 +6,7 @@ module MuxTf
       tokenize(resource).map(&:last)
     end
 
-    def self.tokenize(resource) # rubocop:disable Metrics/AbcSize,Metrics/MethodLength,Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity
+    def self.tokenize(resource) # rubocop:disable Metrics/AbcSize,Metrics/MethodLength,Metrics/CyclomaticComplexity
       result = []
       n = 0
       pn = 0

@@ -107,7 +107,7 @@ module MuxTf
       rescue Psych::DisallowedClass => e
         ap e
         false
-      rescue Psych::SyntaxError => e
+      rescue Psych::SyntaxError => e # rubocop:disable Lint/DuplicateBranch
         ap e
         false
       end
