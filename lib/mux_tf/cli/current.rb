@@ -105,7 +105,7 @@ module MuxTf
           end
         end
 
-        def process_remedies(remedies, from: nil, level: 1, retry_count: 0) # rubocop:disable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity, Metrics/MethodLength
+        def process_remedies(remedies, from: nil, level: 1, retry_count: 0) # rubocop:disable Metrics/AbcSize, Metrics/PerceivedComplexity, Metrics/MethodLength
           remedies = remedies.dup
           remedy = nil
           wrap_log = lambda do |msg, color: nil|
@@ -396,7 +396,7 @@ module MuxTf
           end
         end
 
-        def print_errors_and_warnings(meta) # rubocop:disable Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity, Metrics/AbcSize
+        def print_errors_and_warnings(meta) # rubocop:disable Metrics/AbcSize
           message = []
           message << pastel.yellow("#{meta[:warnings].length} Warnings") if meta[:warnings]
           message << pastel.red("#{meta[:errors].length} Errors") if meta[:errors]

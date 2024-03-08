@@ -94,7 +94,7 @@ module MuxTf
       end
     end
 
-    def initialize(data) # rubocop:disable Metrics/AbcSize, Metrics/MethodLength, Metrics/CyclomaticComplexity
+    def initialize(data) # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
       @parts = []
 
       data["output_changes"]&.each do |output_name, v|
@@ -198,7 +198,7 @@ module MuxTf
       parts.select { |part| part[:type] == "output" }
     end
 
-    def summary # rubocop:disable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
+    def summary
       # resources
       resource_summary = {}
       resource_parts.each do |part|
@@ -265,7 +265,7 @@ module MuxTf
       result
     end
 
-    def nested_summary # rubocop:disable Metrics/PerceivedComplexity
+    def nested_summary
       result = []
       parts = resource_parts.deep_dup
       until parts.empty?
@@ -338,7 +338,7 @@ module MuxTf
       end
     end
 
-    def find_deps(data, address) # rubocop:disable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
+    def find_deps(data, address)
       result = []
 
       m = address.match(/\[(.+)\]$/)

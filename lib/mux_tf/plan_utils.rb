@@ -21,7 +21,7 @@ module MuxTf
         puts msg.join(" - ")
       end
 
-      def update_placeholders(dst, src, placeholder) # rubocop:disable Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity, Metrics/MethodLength
+      def update_placeholders(dst, src, placeholder) # rubocop:disable Metrics/MethodLength
         return unless src
 
         case src
@@ -150,7 +150,7 @@ module MuxTf
         }.join("\n")
       end
 
-      def in_display_representation(value) # rubocop:disable Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity, Metrics/AbcSize, Metrics/MethodLength
+      def in_display_representation(value) # rubocop:disable Metrics/MethodLength
         if valid_json?(value)
           json_body = JSON.pretty_generate(JSON.parse(value))
           wrap(json_body, prefix: "json(", suffix: ")", color: :gray)
@@ -302,7 +302,7 @@ module MuxTf
       #         EOT
       #         # (12 unchanged attributes hidden)
       #     }
-      def tf_show_json_resource(resource) # rubocop:disable Metrics/AbcSize
+      def tf_show_json_resource(resource)
         pretty_action, symbol = get_pretty_action_and_symbol(resource["change"]["actions"])
 
         output = []
