@@ -30,6 +30,7 @@ module MuxTf
       }
 
       stderr_handler.flush
+      stderr_handler.print_errors
 
       result_struct
     end

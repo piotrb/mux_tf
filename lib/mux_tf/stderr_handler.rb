@@ -1,3 +1,4 @@
+require "English"
 module MuxTf
   class StderrLineHandler
     include PiotrbCliUtils::Util
@@ -5,12 +6,27 @@ module MuxTf
 
     include ErrorHandlingMethods
 
+    attr_reader :meta
+
     def initialize(operation: nil)
       @operation = operation
       @held_messages = []
       @parser = StatefulParser.new(normalizer: pastel.method(:strip))
       @meta = {}
       setup_error_handling(@parser, from_states: [:none])
+    end
+
+    def transform_paths!(hash, key)
+      return unless hash[key]
+
+      hash[key].strip!.gsub!(/^\[/, "").gsub!(/\]$/, "") if key == "prefix"
+
+      hash[key].gsub!("#{Dir.getwd}/", "")
+      hash[key].gsub!(Dir.getwd, "")
+
+      hash[key].gsub!($LAST_MATCH_INFO[1], "<cache>/") if hash[key].match(%r{(\.terragrunt-cache/[^/]+/[^/]+/)})
+
+      hash
     end
 
     def handle(raw_line)
@@ -25,6 +41,11 @@ module MuxTf
         begin
           # assuming that stderr is JSON and TG logs
           parsed_line = JSON.parse(raw_line)
+          transform_paths!(parsed_line, "msg")
+          transform_paths!(parsed_line, "prefix")
+          parsed_line["msg"].gsub!("#{Dir.getwd}/", "")
+          parsed_line["prefix"]&.strip!&.gsub!(/^\[/, "")&.gsub!(/\]$/, "")
+          parsed_line["prefix"]&.gsub!("#{Dir.getwd}", "")
           if @operation == :plan
             handle_plan_json(parsed_line)
           else
@@ -50,17 +71,35 @@ module MuxTf
         # clear the held messages and swallow up this message too
         @held_messages = []
       else
-        flush
+        # flush
         log format_tg_log_line(parsed_line), depth: 2
       end
     end
 
     def flush
-      print_errors(@meta) if @meta[:errors] && !@meta[:errors].empty?
       @held_messages.each do |msg|
         log msg, depth: 2
       end
       @held_messages = []
+    end
+
+    def print_errors
+      print_errors(@meta) if @meta[:errors] && !@meta[:errors].empty?
+    end
+
+    def merge_meta_into(other_meta)
+      [:errors, :warnings].each do |type|
+        if @meta[type]
+          other_meta[type] ||= []
+          other_meta[type] += @meta[type]
+        end
+      end
+
+      extra_keys = @meta.keys - [:errors, :warnings]
+      return unless extra_keys.any?
+
+      log "Unhandled keys in stderr_handler.meta: #{extra_keys.inspect}"
+      log @meta.inspect
     end
 
     private
@@ -83,7 +122,7 @@ module MuxTf
                line_data["level"]
              end
       msg += ": #{line_data['msg']}"
-      msg += " [#{line_data['prefix']}]" if line_data["prefix"]
+      msg += " [#{line_data['prefix']}]" if line_data["prefix"] && !line_data["prefix"].empty?
       msg
     end
   end

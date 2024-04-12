@@ -475,6 +475,14 @@ module MuxTf
         }
 
         stderr_handler.flush
+        stderr_handler.merge_meta_into(meta)
+
+        meta[:errors]&.each do |error|
+          if error[:message] == "Error acquiring the state lock"
+            meta["error"] = "lock"
+            meta.merge!(parse_lock_info(error[:body].join("\n")))
+          end
+        end
 
         [status.status, meta]
       end
@@ -653,6 +661,7 @@ module MuxTf
         }
 
         stderr_handler.flush
+        stderr_handler.merge_meta_into(meta)
 
         [status.status, meta]
       end
