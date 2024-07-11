@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "English"
 module MuxTf
   class StderrLineHandler
@@ -37,6 +39,16 @@ module MuxTf
         return
       end
 
+      # [✘] error when retrieving credentials from custom process. please login using 'granted sso login --sso-start-url https://janeapp.awsapps.com/start --sso-region us-east-1'
+      if raw_line =~ /error when retrieving credentials from custom process. please login using '([^']+)'/
+        unless @sso_expired
+          @sso_expired = true
+          log "#{pastel.red('error')}: SSO Session expired.", depth: 2
+          log "#{pastel.red('error')}: Run: #{$LAST_MATCH_INFO[1]}", depth: 2
+        end
+        return
+      end
+
       if raw_line.strip[0] == "{" && raw_line.strip[-1] == "}"
         begin
           # assuming that stderr is JSON and TG logs
@@ -45,7 +57,7 @@ module MuxTf
           transform_paths!(parsed_line, "prefix")
           parsed_line["msg"].gsub!("#{Dir.getwd}/", "")
           parsed_line["prefix"]&.strip!&.gsub!(/^\[/, "")&.gsub!(/\]$/, "")
-          parsed_line["prefix"]&.gsub!("#{Dir.getwd}", "")
+          parsed_line["prefix"]&.gsub!(Dir.getwd, "")
           if @operation == :plan
             handle_plan_json(parsed_line)
           else
@@ -83,7 +95,7 @@ module MuxTf
       @held_messages = []
     end
 
-    def print_errors
+    def do_print_errors
       print_errors(@meta) if @meta[:errors] && !@meta[:errors].empty?
     end
 
@@ -119,7 +131,7 @@ module MuxTf
              when "error"
                pastel.red(line_data["level"])
              else
-               line_data["level"]
+               pastel.orange(line_data["level"])
              end
       msg += ": #{line_data['msg']}"
       msg += " [#{line_data['prefix']}]" if line_data["prefix"] && !line_data["prefix"].empty?

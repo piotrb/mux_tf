@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "shellwords"
+require "open3"
 
 module MuxTf
   module Tmux
@@ -23,6 +24,13 @@ module MuxTf
         panes.find { |pane| pane[:name] == name }
       end
 
+      def list_panes
+        `tmux list-panes -F "\#{pane_id},\#{pane_index},\#{pane_title}"`.strip.split("\n").map do |row|
+          x = row.split(",")
+          { id: x[0], index: x[1], name: x[2] }
+        end
+      end
+
       def list_windows
         `tmux list-windows -F "\#{window_id},\#{window_index},\#{window_name}"`.strip.split("\n").map do |row|
           x = row.split(",")
@@ -30,8 +38,15 @@ module MuxTf
         end
       end
 
-      def new_session(name)
-        tmux %(new-session -s #{name.inspect} -d)
+      def new_session(name, cwd: nil, cmd: nil)
+        parts = [
+          "new-session",
+          "-s #{name.inspect}",
+          "-d",
+          cwd ? "-c #{cwd}" : nil,
+          cmd&.inspect
+        ].compact
+        tmux parts.join(" ")
       end
 
       def select_pane(name)
@@ -50,8 +65,23 @@ module MuxTf
         tmux "select-layout tiled"
       end
 
-      def attach(name, cc: false)
-        tmux %(#{(cc && '-CC') || ''} attach -t #{name.inspect}), raise_on_error: false
+      def attach_control(name, on_line:, on_spawn:)
+        parts = [
+          "-C",
+          "attach",
+          "-t #{name.inspect}"
+        ].compact
+        tmux parts.join(" "), raise_on_error: false, mode: :popen, on_line: on_line, on_spawn: on_spawn
+      end
+
+      def attach(name, cc: false, control: false)
+        parts = [
+          cc ? "-CC" : nil,
+          control ? "-C" : nil,
+          "attach",
+          "-t #{name.inspect}"
+        ].compact
+        tmux parts.join(" "), raise_on_error: false
       end
 
       def kill_pane(pane_id)
@@ -75,7 +105,7 @@ module MuxTf
 
         parts = [
           "split-window",
-          cwd && "-c #{cwd}",
+          cwd ? "-c #{cwd}" : nil,
           mode_part,
           "-t #{target_pane.inspect}",
           cmd&.inspect
@@ -89,7 +119,7 @@ module MuxTf
         @tmux_bin ||= `which tmux`.strip
       end
 
-      def tmux(cmd, raise_on_error: true, mode: :system)
+      def tmux(cmd, raise_on_error: true, mode: :system, on_line: nil, on_spawn: nil)
         case mode
         when :system
           # puts " => tmux #{cmd}"
@@ -102,6 +132,25 @@ module MuxTf
           true
         when :exec
           exec tmux_bin, *Shellwords.shellwords(cmd)
+        when :popen
+          Open3.popen3(tmux_bin, *Shellwords.shellwords(cmd)) do |stdin, stdout, stderr, wait_thr|
+            on_spawn&.call(stdin)
+            Thread.new do
+              until stdout.eof?
+                line = stdout.gets
+                on_line&.call(:stdout, line)
+              end
+            end
+            Thread.new do
+              until stderr.eof?
+                line = stderr.gets
+                on_line&.call(:stderr, line)
+              end
+            end
+            # pid = wait_thr.pid
+            exit_status = wait_thr.value
+            fail_with("`tmux #{cmd}' failed with code: #{exit_status}") if raise_on_error && exit_status != 0
+          end
         end
       end
     end

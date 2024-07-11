@@ -30,7 +30,7 @@ module MuxTf
       }
 
       stderr_handler.flush
-      stderr_handler.print_errors
+      stderr_handler.do_print_errors
 
       result_struct
     end
@@ -167,7 +167,7 @@ module MuxTf
           stderr_thread.join
           output_queue.close
         end
-        until output_queue.closed?
+        until output_queue.closed? && output_queue.empty?
           value = output_queue.pop
           yield(value) unless value.nil?
         end

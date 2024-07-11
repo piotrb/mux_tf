@@ -8,7 +8,7 @@ module MuxTf
 
     extend ErrorHandlingMethods
 
-    class << self # rubocop:disable Metrics/ClassLength
+    class << self
       def pretty_plan(filename, targets: [])
         if ENV["JSON_PLAN"]
           pretty_plan_v2(filename, targets: targets)
@@ -42,7 +42,6 @@ module MuxTf
         result
       end
 
-      # rubocop:disable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/MethodLength, Metrics/PerceivedComplexity
       def tf_plan_json(out:, targets: [], &block)
         emit_line = proc { |result|
           result[:level] ||= result[:stream] == :stderr ? "error" : "info"
@@ -127,7 +126,6 @@ module MuxTf
         emit_line.call(last_stderr_line) if last_stderr_line
         status
       end
-      # rubocop:enable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/MethodLength, Metrics/PerceivedComplexity
 
       def parse_lock_info(detail)
         # Lock Info:
@@ -172,7 +170,7 @@ module MuxTf
         log log_line
       end
 
-      # rubocop:disable Metrics/AbcSize, Metrics/MethodLength, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
+      # rubocop:disable Metrics/AbcSize
       def pretty_plan_v2(filename, targets: [])
         meta = {}
         meta[:seen] = {
@@ -348,26 +346,27 @@ module MuxTf
         }
         [status.status, meta]
       end
-      # rubocop:enable Metrics/AbcSize, Metrics/MethodLength, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
+      # rubocop:enable Metrics/AbcSize
 
-      def pretty_plan_v1(filename, targets: []) # rubocop:disable Metrics/AbcSize, Metrics/MethodLength, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
-        meta = {}
-
-        parser = StatefulParser.new(normalizer: pastel.method(:strip))
+      def setup_plan_v1_parser(parser)
         parser.state(:info, /^Acquiring state lock/)
         parser.state(:error, /(Error locking state|Error:)/, [:none, :blank, :info, :reading])
         parser.state(:reading, /: (Reading...|Read complete after)/, [:none, :info, :reading])
         parser.state(:none, /^$/, [:reading])
-        parser.state(:refreshing, /^.+: Refreshing state... \[id=/, [:none, :info, :reading])
+        parser.state(:refreshing, /^.+: Refreshing state... \[id=/, [:none, :info, :reading, :import])
         parser.state(:refreshing, /Refreshing Terraform state in-memory prior to plan.../,
                      [:none, :blank, :info, :reading])
         parser.state(:none, /^----------+$/, [:refreshing])
         parser.state(:none, /^$/, [:refreshing])
 
+        parser.state(:import, /".+: Preparing import... \[id=.+\]$/, [:none, :import])
+        parser.state(:none, /^$/, [:import])
+
         parser.state(:output_info, /^Changes to Outputs:$/, [:none])
         parser.state(:none, /^$/, [:output_info])
 
         parser.state(:plan_info, /Terraform will perform the following actions:/, [:none])
+        parser.state(:plan_info, /You can apply this plan to save these new output values to the Terraform/, [:none])
         parser.state(:plan_summary, /^Plan:/, [:plan_info])
 
         parser.state(:plan_legend, /^Terraform used the selected providers to generate the following execution$/)
@@ -376,13 +375,105 @@ module MuxTf
         parser.state(:plan_info, /Terraform planned the following actions, but then encountered a problem:/, [:none])
         parser.state(:plan_info, /No changes. Your infrastructure matches the configuration./, [:none])
 
-        parser.state(:plan_error, /Planning failed. Terraform encountered an error while generating this plan./, [:refreshing])
+        parser.state(:plan_error, /Planning failed. Terraform encountered an error while generating this plan./, [:refreshing, :none])
 
         # this extends the error block to include the lock info
         parser.state(:error_lock_info, /Lock Info/, [:error_block_error])
         parser.state(:after_error, /^╵/, [:error_lock_info])
+      end
 
-        setup_error_handling(parser, from_states: [:plan_error, :none, :blank, :info, :reading, :plan_summary, :refreshing])
+      def handle_plan_v1_line(state, line, meta, first_in_state:, stripped_line:)
+        case state
+        when :none
+          if line.blank?
+          # nothing
+          elsif stripped_line.match(/Error when retrieving token from sso/) || stripped_line.match(/Error loading SSO Token/)
+            meta[:need_auth] = true
+            log pastel.red("authentication problem"), depth: 2
+          else
+            log_unhandled_line(state, line, reason: "unexpected non blank line in :none state")
+          end
+        when :reading
+          if stripped_line.match(/^(.+): Reading...$/)
+            log "Reading: #{$LAST_MATCH_INFO[1]} ...", depth: 2
+          elsif stripped_line.match(/^(.+): Read complete after ([^\[]+)(?: \[(.+)\])?$/)
+            if $LAST_MATCH_INFO[3]
+              log "Reading Complete: #{$LAST_MATCH_INFO[1]} after #{$LAST_MATCH_INFO[2]} [#{$LAST_MATCH_INFO[3]}]", depth: 3
+            else
+              log "Reading Complete: #{$LAST_MATCH_INFO[1]} after #{$LAST_MATCH_INFO[2]}", depth: 3
+            end
+          else
+            log_unhandled_line(state, line, reason: "unexpected line in :reading state")
+          end
+        when :import
+          # github_repository_topics.this[\"tf-k8s-infra-modules\"]: Preparing import... [id=tf-k8s-infra-modules]
+          matches = stripped_line.match(/^(?<resource>.+): Preparing import... \[id=(?<id>.+)\]$/)
+          if matches
+            log "Importing #{pastel.cyan(matches[:resource])} (id=#{pastel.yellow(matches[:id])}) ...", depth: 2
+          else
+            p [:import, "couldn't parse line:", stripped_line]
+          end
+        when :info
+          if /Acquiring state lock. This may take a few moments.../.match?(line)
+            log "Acquiring state lock ...", depth: 2
+          else
+            log_unhandled_line(state, line, reason: "unexpected line in :info state")
+          end
+        when :plan_error
+          case pastel.strip(line)
+          when ""
+            # skip empty line
+          when /Releasing state lock. This may take a few moments"/
+            log line, depth: 2
+          when /Planning failed./ # rubocop:disable Lint/DuplicateBranch
+            log line, depth: 2
+          else
+            log_unhandled_line(state, line, reason: "unexpected line in :plan_error state")
+          end
+        when :error_lock_info
+          meta["error"] = "lock"
+          meta[$LAST_MATCH_INFO[1]] = $LAST_MATCH_INFO[2] if line =~ /([A-Z]+\S+)+:\s+(.+)$/
+          if stripped_line == ""
+            meta[:current_error][:body] << stripped_line if meta[:current_error][:body].last != ""
+          else
+            meta[:current_error][:body] << stripped_line
+          end
+        when :refreshing
+          if first_in_state
+            log "Refreshing state ", depth: 2, newline: false
+          else
+            print "."
+          end
+        when :plan_legend
+          puts if first_in_state
+          log line, depth: 2
+        when :refresh_done
+          puts if first_in_state
+        when :plan_info # rubocop:disable Lint/DuplicateBranch
+          puts if first_in_state
+          log line, depth: 2
+        when :output_info # rubocop:disable Lint/DuplicateBranch
+          puts if first_in_state
+          log line, depth: 2
+        when :plan_summary
+          log line, depth: 2
+        else
+          return false
+        end
+        true
+      end
+
+      def pretty_plan_v1(filename, targets: [])
+        meta = {}
+        init_phase = :none
+
+        parser = StatefulParser.new(normalizer: pastel.method(:strip))
+
+        setup_init_parser(parser)
+        setup_plan_v1_parser(parser)
+
+        setup_error_handling(parser,
+                             from_states: [:plan_error, :none, :blank, :info, :reading, :plan_summary, :refreshing] + [:plugins, :modules_init])
 
         last_state = nil
 
@@ -395,80 +486,20 @@ module MuxTf
           when :stderr
             stderr_handler.handle(raw_line)
           when :stdout
+            stripped_line = pastel.strip(raw_line.rstrip)
             parser.parse(raw_line.rstrip) do |state, line|
               first_in_state = last_state != state
 
-              case state
-              when :none
-                if line.blank?
-                # nothing
-                elsif raw_line.match(/Error when retrieving token from sso/) || raw_line.match(/Error loading SSO Token/)
-                  meta[:need_auth] = true
-                  log pastel.red("authentication problem"), depth: 2
-                else
-                  log_unhandled_line(state, line, reason: "unexpected non blank line in :none state")
-                end
-              when :reading
-                clean_line = pastel.strip(line)
-                if clean_line.match(/^(.+): Reading...$/)
-                  log "Reading: #{$LAST_MATCH_INFO[1]} ...", depth: 2
-                elsif clean_line.match(/^(.+): Read complete after ([^\[]+)(?: \[(.+)\])?$/)
-                  if $LAST_MATCH_INFO[3]
-                    log "Reading Complete: #{$LAST_MATCH_INFO[1]} after #{$LAST_MATCH_INFO[2]} [#{$LAST_MATCH_INFO[3]}]", depth: 3
-                  else
-                    log "Reading Complete: #{$LAST_MATCH_INFO[1]} after #{$LAST_MATCH_INFO[2]}", depth: 3
-                  end
-                else
-                  log_unhandled_line(state, line, reason: "unexpected line in :reading state")
-                end
-              when :info
-                if /Acquiring state lock. This may take a few moments.../.match?(line)
-                  log "Acquiring state lock ...", depth: 2
-                else
-                  log_unhandled_line(state, line, reason: "unexpected line in :info state")
-                end
-              when :plan_error
-                case pastel.strip(line)
-                when ""
-                  # skip empty line
-                when /Releasing state lock. This may take a few moments"/
-                  log line, depth: 2
-                when /Planning failed./ # rubocop:disable Lint/DuplicateBranch
-                  log line, depth: 2
-                else
-                  log_unhandled_line(state, line, reason: "unexpected line in :plan_error state")
-                end
-              when :error_lock_info
-                meta["error"] = "lock"
-                meta[$LAST_MATCH_INFO[1]] = $LAST_MATCH_INFO[2] if line =~ /([A-Z]+\S+)+:\s+(.+)$/
-                clean_line = pastel.strip(line).gsub(/^│ /, "")
-                if clean_line == ""
-                  meta[:current_error][:body] << clean_line if meta[:current_error][:body].last != ""
-                else
-                  meta[:current_error][:body] << clean_line
-                end
-              when :refreshing
-                if first_in_state
-                  log "Refreshing state ", depth: 2, newline: false
-                else
-                  print "."
-                end
-              when :plan_legend
-                puts if first_in_state
-                log line, depth: 2
-              when :refresh_done
-                puts if first_in_state
-              when :plan_info # rubocop:disable Lint/DuplicateBranch
-                puts if first_in_state
-                log line, depth: 2
-              when :output_info # rubocop:disable Lint/DuplicateBranch
-                puts if first_in_state
-                log line, depth: 2
-              when :plan_summary
-                log line, depth: 2
+              if (handled = handle_plan_v1_line(state, line, meta, first_in_state: first_in_state, stripped_line: stripped_line))
+                # great!
+              elsif (handled = handle_init_line(state, line, meta, phase: init_phase, stripped_line: stripped_line))
+                init_phase = handled[:phase]
+              elsif handle_error_states(meta, state, line)
+                # no-op
               else
-                log_unhandled_line(state, line, reason: "unexpected state") unless handle_error_states(meta, state, line)
+                log_unhandled_line(state, line, reason: "unexpected state")
               end
+
               last_state = state
             end
           end
@@ -507,13 +538,7 @@ module MuxTf
         remedies
       end
 
-      def run_tf_init(upgrade: nil, reconfigure: nil) # rubocop:disable Metrics/MethodLength
-        phase = :init
-
-        meta = {}
-
-        parser = StatefulParser.new(normalizer: pastel.method(:strip))
-
+      def setup_init_parser(parser)
         parser.state(:modules_init, /^Initializing modules\.\.\./, [:none, :backend])
         parser.state(:modules_upgrade, /^Upgrading modules\.\.\./)
         parser.state(:backend, /^Initializing the backend\.\.\./, [:none, :modules_init, :modules_upgrade])
@@ -523,6 +548,138 @@ module MuxTf
 
         parser.state(:plugin_warnings, /^$/, [:plugins])
         parser.state(:backend_error, /Error:/, [:backend])
+      end
+
+      def handle_init_line(state, line, meta, phase:, stripped_line:)
+        case state
+        when :modules_init
+          if phase == state
+            case stripped_line
+            when /^Downloading (?<repo>[^ ]+) (?<version>[^ ]+) for (?<module>[^ ]+)\.\.\./
+              print "D"
+            when /^Downloading (?<repo>[^ ]+) for (?<module>[^ ]+)\.\.\./ # rubocop:disable Lint/DuplicateBranch
+              print "D"
+            when /^- (?<module>[^ ]+) in (?<path>.+)$/
+              print "."
+            when ""
+              puts
+            else
+              log_unhandled_line(state, line, reason: "unexpected line in :modules_init state")
+            end
+          else
+            phase = state
+            log "Initializing modules ", depth: 1
+          end
+        when :modules_upgrade
+          if phase == state
+            case stripped_line
+            when /^- (?<module>[^ ]+) in (?<path>.+)$/
+              print "."
+            when /^Downloading (?<repo>[^ ]+) (?<version>[^ ]+) for (?<module>[^ ]+)\.\.\./
+              print "D"
+            when /^Downloading (?<repo>[^ ]+) for (?<module>[^ ]+)\.\.\./ # rubocop:disable Lint/DuplicateBranch
+              print "D"
+            when ""
+              puts
+            else
+              log_unhandled_line(state, line, reason: "unexpected line in :modules_upgrade state")
+            end
+          else
+            # first line
+            phase = state
+            log "Upgrding modules ", depth: 1, newline: false
+          end
+        when :backend
+          if phase == state
+            case stripped_line
+            when /^Successfully configured/
+              log line, depth: 2
+            when /unless the backend/ # rubocop:disable Lint/DuplicateBranch
+              log line, depth: 2
+            when ""
+              puts
+            else
+              log_unhandled_line(state, line, reason: "unexpected line in :backend state")
+            end
+          else
+            # first line
+            phase = state
+            log "Initializing the backend ", depth: 1 # , newline: false
+          end
+        when :backend_error
+          if raw_line.match "terraform init -reconfigure"
+            meta[:need_reconfigure] = true
+            log pastel.red("module needs to be reconfigured"), depth: 2
+          end
+          if raw_line.match "Error when retrieving token from sso"
+            meta[:need_auth] = true
+            log pastel.red("authentication problem"), depth: 2
+          end
+        when :plugins
+          if phase == state
+            case stripped_line
+            when /^- Reusing previous version of (?<module>.+) from the dependency lock file$/
+              info = $LAST_MATCH_INFO.named_captures
+              log "- [FROM-LOCK] #{info['module']}", depth: 2
+            when /^- (?<module>.+) is built in to Terraform$/
+              info = $LAST_MATCH_INFO.named_captures
+              log "- [BUILTIN] #{info['module']}", depth: 2
+            when /^- Finding (?<module>[^ ]+) versions matching "(?<version>.+)"\.\.\./
+              info = $LAST_MATCH_INFO.named_captures
+              log "- [FIND] #{info['module']} matching #{info['version'].inspect}", depth: 2
+            when /^- Finding latest version of (?<module>.+)\.\.\.$/
+              info = $LAST_MATCH_INFO.named_captures
+              log "- [FIND] #{info['module']}", depth: 2
+            when /^- Installing (?<module>[^ ]+) v(?<version>.+)\.\.\.$/
+              info = $LAST_MATCH_INFO.named_captures
+              log "- [INSTALLING] #{info['module']} v#{info['version']}", depth: 2
+            when /^- Installed (?<module>[^ ]+) v(?<version>.+) \(signed by(?: a)? (?<signed>.+)\)$/
+              info = $LAST_MATCH_INFO.named_captures
+              log "- [INSTALLED] #{info['module']} v#{info['version']} (#{info['signed']})", depth: 2
+            when /^- Using previously-installed (?<module>[^ ]+) v(?<version>.+)$/
+              info = $LAST_MATCH_INFO.named_captures
+              log "- [USING] #{info['module']} v#{info['version']}", depth: 2
+            when /^- Downloading plugin for provider "(?<provider>[^"]+)" \((?<provider_path>[^)]+)\) (?<version>.+)\.\.\.$/
+              info = $LAST_MATCH_INFO.named_captures
+              log "- #{info['provider']} #{info['version']}", depth: 2
+            when /^- Using (?<provider>[^ ]+) v(?<version>.+) from the shared cache directory$/
+              info = $LAST_MATCH_INFO.named_captures
+              log "- [CACHE HIT] #{info['provider']} #{info['version']}", depth: 2
+            when "- Checking for available provider plugins..."
+              # noop
+            else
+              log_unhandled_line(state, line, reason: "unexpected line in :plugins state")
+            end
+          else
+            # first line
+            phase = state
+            log "Initializing provider plugins ...", depth: 1
+          end
+        when :plugin_warnings
+          if phase == state
+            log pastel.yellow(line), depth: 1
+          else
+            # first line
+            phase = state
+          end
+        when :none
+          log_unhandled_line(state, line, reason: "unexpected line in :none state") if line != ""
+        else
+          return false
+          # log_unhandled_line(state, line, reason: "unexpected state") unless handle_error_states(meta, state, line)
+        end
+
+        { phase: phase }
+      end
+
+      def run_tf_init(upgrade: nil, reconfigure: nil)
+        phase = :init
+
+        meta = {}
+
+        parser = StatefulParser.new(normalizer: pastel.method(:strip))
+
+        setup_init_parser(parser)
 
         setup_error_handling(parser, from_states: [:plugins, :modules_init])
 
@@ -537,124 +694,12 @@ module MuxTf
           when :stdout
             stripped_line = pastel.strip(raw_line.rstrip)
             parser.parse(raw_line.rstrip) do |state, line|
-              case state
-              when :modules_init
-                if phase != state
-                  phase = state
-                  log "Initializing modules ", depth: 1
-                  next
-                end
-                case stripped_line
-                when /^Downloading (?<repo>[^ ]+) (?<version>[^ ]+) for (?<module>[^ ]+)\.\.\./
-                  print "D"
-                when /^Downloading (?<repo>[^ ]+) for (?<module>[^ ]+)\.\.\./ # rubocop:disable Lint/DuplicateBranch
-                  print "D"
-                when /^- (?<module>[^ ]+) in (?<path>.+)$/
-                  print "."
-                when ""
-                  puts
-                else
-                  log_unhandled_line(state, line, reason: "unexpected line in :modules_init state")
-                end
-              when :modules_upgrade
-                if phase != state
-                  # first line
-                  phase = state
-                  log "Upgrding modules ", depth: 1, newline: false
-                  next
-                end
-                case stripped_line
-                when /^- (?<module>[^ ]+) in (?<path>.+)$/
-                  print "."
-                when /^Downloading (?<repo>[^ ]+) (?<version>[^ ]+) for (?<module>[^ ]+)\.\.\./
-                  print "D"
-                when /^Downloading (?<repo>[^ ]+) for (?<module>[^ ]+)\.\.\./ # rubocop:disable Lint/DuplicateBranch
-                  print "D"
-                when ""
-                  puts
-                else
-                  log_unhandled_line(state, line, reason: "unexpected line in :modules_upgrade state")
-                end
-              when :backend
-                if phase != state
-                  # first line
-                  phase = state
-                  log "Initializing the backend ", depth: 1 # , newline: false
-                  next
-                end
-                case stripped_line
-                when /^Successfully configured/
-                  log line, depth: 2
-                when /unless the backend/ # rubocop:disable Lint/DuplicateBranch
-                  log line, depth: 2
-                when ""
-                  puts
-                else
-                  log_unhandled_line(state, line, reason: "unexpected line in :backend state")
-                end
-              when :backend_error
-                if raw_line.match "terraform init -reconfigure"
-                  meta[:need_reconfigure] = true
-                  log pastel.red("module needs to be reconfigured"), depth: 2
-                end
-                if raw_line.match "Error when retrieving token from sso"
-                  meta[:need_auth] = true
-                  log pastel.red("authentication problem"), depth: 2
-                end
-              when :plugins
-                if phase != state
-                  # first line
-                  phase = state
-                  log "Initializing provider plugins ...", depth: 1
-                  next
-                end
-                case stripped_line
-                when /^- Reusing previous version of (?<module>.+) from the dependency lock file$/
-                  info = $LAST_MATCH_INFO.named_captures
-                  log "- [FROM-LOCK] #{info['module']}", depth: 2
-                when /^- (?<module>.+) is built in to Terraform$/
-                  info = $LAST_MATCH_INFO.named_captures
-                  log "- [BUILTIN] #{info['module']}", depth: 2
-                when /^- Finding (?<module>[^ ]+) versions matching "(?<version>.+)"\.\.\./
-                  info = $LAST_MATCH_INFO.named_captures
-                  log "- [FIND] #{info['module']} matching #{info['version'].inspect}", depth: 2
-                when /^- Finding latest version of (?<module>.+)\.\.\.$/
-                  info = $LAST_MATCH_INFO.named_captures
-                  log "- [FIND] #{info['module']}", depth: 2
-                when /^- Installing (?<module>[^ ]+) v(?<version>.+)\.\.\.$/
-                  info = $LAST_MATCH_INFO.named_captures
-                  log "- [INSTALLING] #{info['module']} v#{info['version']}", depth: 2
-                when /^- Installed (?<module>[^ ]+) v(?<version>.+) \(signed by(?: a)? (?<signed>.+)\)$/
-                  info = $LAST_MATCH_INFO.named_captures
-                  log "- [INSTALLED] #{info['module']} v#{info['version']} (#{info['signed']})", depth: 2
-                when /^- Using previously-installed (?<module>[^ ]+) v(?<version>.+)$/
-                  info = $LAST_MATCH_INFO.named_captures
-                  log "- [USING] #{info['module']} v#{info['version']}", depth: 2
-                when /^- Downloading plugin for provider "(?<provider>[^"]+)" \((?<provider_path>[^)]+)\) (?<version>.+)\.\.\.$/
-                  info = $LAST_MATCH_INFO.named_captures
-                  log "- #{info['provider']} #{info['version']}", depth: 2
-                when /^- Using (?<provider>[^ ]+) v(?<version>.+) from the shared cache directory$/
-                  info = $LAST_MATCH_INFO.named_captures
-                  log "- [CACHE HIT] #{info['provider']} #{info['version']}", depth: 2
-                when "- Checking for available provider plugins..."
-                  # noop
-                else
-                  log_unhandled_line(state, line, reason: "unexpected line in :plugins state")
-                end
-              when :plugin_warnings
-                if phase != state
-                  # first line
-                  phase = state
-                  next
-                end
-
-                log pastel.yellow(line), depth: 1
-              when :none
-                next if line == ""
-
-                log_unhandled_line(state, line, reason: "unexpected line in :none state")
+              if (handled = handle_init_line(state, line, meta, phase: phase, stripped_line: stripped_line))
+                phase = handled[:phase]
+              elsif handle_error_states(meta, state, line)
+                # no-op
               else
-                log_unhandled_line(state, line, reason: "unexpected state") unless handle_error_states(meta, state, line)
+                log_unhandled_line(state, line, reason: "unexpected state")
               end
             end
           end
@@ -678,7 +723,6 @@ module MuxTf
         end
       end
 
-      # rubocop:disable Metrics/MethodLength
       def process_validation(info)
         remedies = Set.new
 
@@ -734,11 +778,10 @@ module MuxTf
 
         remedies
       end
-      # rubocop:enable Metrics/MethodLength
 
       private
 
-      def format_validation_range(dinfo, color) # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
+      def format_validation_range(dinfo, color)
         range = dinfo["range"]
         # filename: "../../../modules/pods/jane_pod/main.tf"
         # start:

@@ -33,7 +33,7 @@ module MuxTf
         case action
         when "create", "add"
           :green
-        when "update", "change"
+        when "update", "change", "import-update"
           :yellow
         when "delete", "remove"
           :red
@@ -64,6 +64,10 @@ module MuxTf
           "±"
         when "read"
           ">"
+        when "import"
+          "→"
+        when "import-update"
+          "↗︎"
         else
           action
         end
@@ -94,7 +98,7 @@ module MuxTf
       end
     end
 
-    def initialize(data) # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
+    def initialize(data)
       @parts = []
 
       data["output_changes"]&.each do |output_name, v|
@@ -138,6 +142,14 @@ module MuxTf
         case v["change"]["actions"]
         when ["no-op"]
           # do nothing
+          if v["change"]["importing"]
+            parts << {
+              type: "resource",
+              action: "import",
+              address: v["address"],
+              deps: find_deps(data, v["address"])
+            }
+          end
         when ["create"]
           parts << {
             type: "resource",
@@ -146,9 +158,10 @@ module MuxTf
             deps: find_deps(data, v["address"])
           }
         when ["update"]
+          # ap [v["change"]["actions"], v["change"]["importing"]]
           parts << {
             type: "resource",
-            action: "update",
+            action: v["change"]["importing"] ? "import-update" : "update",
             address: v["address"],
             deps: find_deps(data, v["address"])
           }
@@ -233,11 +246,9 @@ module MuxTf
     end
 
     def flat_summary
-      result = []
-      resource_parts.each do |part|
-        result << "[#{self.class.format_action(part[:action])}] #{self.class.format_address(part[:address])}"
+      resource_parts.map do |part|
+        "[#{self.class.format_action(part[:action])}] #{self.class.format_address(part[:address])}"
       end
-      result
     end
 
     def sensitive_summary(before_value, after_value)
@@ -263,6 +274,19 @@ module MuxTf
         result << pieces.join(" ")
       end
       result
+    end
+
+    def simple_summary(&printer)
+      printer = method(:puts) if printer.nil?
+
+      flat_summary.each do |line|
+        printer.call line
+      end
+      output_summary.each do |line|
+        printer.call line
+      end
+      printer.call ""
+      printer.call summary
     end
 
     def nested_summary
@@ -305,30 +329,13 @@ module MuxTf
       if result.empty?
         throw :abort, "nothing selected"
       else
-        log "Re-running apply with the selected resources ..."
-        MuxTf::Cli::Current.run_plan(targets: result)
+        result
       end
     end
 
     private
 
     attr_reader :parts
-
-    def create_plan(filename, targets: [])
-      log "Preparing Plan ...", depth: 1
-      exit_code, meta = PlanFormatter.pretty_plan(filename, targets: targets)
-      case exit_code
-      when 0
-        [:ok, meta]
-      when 1
-        [:error, meta]
-      when 2
-        [:changes, meta]
-      else
-        log pastel.yellow("terraform plan exited with an unknown exit code: #{exit_code}")
-        [:unknown, meta]
-      end
-    end
 
     def prune_unchanged_deps(_parts)
       valid_addresses = resource_parts.map { |part| part[:address] }
@@ -358,7 +365,7 @@ module MuxTf
       resource, parent_address = find_config(data["configuration"], "root_module", address, [])
       if resource
         deps = []
-        resource["expressions"]&.each do |_k, v|
+        resource["expressions"]&.each_value do |v|
           deps << v["references"] if v.is_a?(Hash) && v["references"]
         end
         result += deps.map { |s| (parent_address + [s]).join(".") }

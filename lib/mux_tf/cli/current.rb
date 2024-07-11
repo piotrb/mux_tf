@@ -11,9 +11,13 @@ module MuxTf
       extend PiotrbCliUtils::CmdLoop
       include Coloring
 
-      class << self # rubocop:disable Metrics/ClassLength
+      class << self
+        attr_accessor :plan_command
+
         def run(args)
           version_check
+
+          self.plan_command = PlanCommand.new
 
           ENV["TF_IN_AUTOMATION"] = "1"
           ENV["TF_INPUT"] = "0"
@@ -40,14 +44,14 @@ module MuxTf
           folder_name = File.basename(Dir.getwd)
           log "Processing #{pastel.cyan(folder_name)} ..."
 
-          return launch_cmd_loop(:error) unless run_validate
+          return launch_cmd_loop(:error) unless @plan_command.run_validate
 
           if ENV["TF_UPGRADE"]
             upgrade_status, _upgrade_meta = run_upgrade
             return launch_cmd_loop(:error) unless upgrade_status == :ok
           end
 
-          plan_status = run_plan
+          plan_status = @plan_command.run_plan
 
           case plan_status
           when :ok
@@ -59,23 +63,6 @@ module MuxTf
           when :unknown # rubocop:disable Lint/DuplicateBranch
             launch_cmd_loop(plan_status)
           end
-        end
-
-        def plan_filename
-          PlanFilenameGenerator.for_path
-        end
-
-        private
-
-        def version_check
-          return unless VersionCheck.has_updates?
-
-          log pastel.yellow("=" * 80)
-          log "New version of #{pastel.cyan('mux_tf')} is available!"
-          log "You are currently on version: #{pastel.yellow(VersionCheck.current_gem_version)}"
-          log "Latest version found is: #{pastel.green(VersionCheck.latest_gem_version)}"
-          log "Run `#{pastel.green('gem install mux_tf')}` to update!"
-          log pastel.yellow("=" * 80)
         end
 
         # block is expected to return a touple, the first element is a list of remedies
@@ -95,17 +82,53 @@ module MuxTf
           end
         end
 
-        # returns boolean true if succeeded
-        def run_validate(level: 1)
-          remedy_retry_helper(from: :validate, level: level) do
-            validation_info = validate
-            PlanFormatter.print_validation_errors(validation_info)
-            remedies = PlanFormatter.process_validation(validation_info)
-            [remedies, validation_info]
+        def print_errors_and_warnings(meta)
+          message = []
+          message << pastel.yellow("#{meta[:warnings].length} Warnings") if meta[:warnings]
+          message << pastel.red("#{meta[:errors].length} Errors") if meta[:errors]
+          if message.length.positive?
+            log ""
+            log "Encountered: #{message.join(' and ')}"
+            log ""
           end
+
+          meta[:warnings]&.each do |warning|
+            log "-" * 20
+            log pastel.yellow("Warning: #{warning[:message]}")
+            warning[:body]&.each do |line|
+              log pastel.yellow(line), depth: 1
+            end
+            log ""
+          end
+
+          meta[:errors]&.each do |error|
+            log "-" * 20
+            log pastel.red("Error: #{error[:message]}")
+            error[:body]&.each do |line|
+              log pastel.red(line), depth: 1
+            end
+            log ""
+          end
+
+          return unless message.length.positive?
+
+          log ""
         end
 
-        def process_remedies(remedies, from: nil, level: 1, retry_count: 0) # rubocop:disable Metrics/AbcSize, Metrics/PerceivedComplexity, Metrics/MethodLength
+        private
+
+        def version_check
+          return unless VersionCheck.has_updates?
+
+          log pastel.yellow("=" * 80)
+          log "New version of #{pastel.cyan('mux_tf')} is available!"
+          log "You are currently on version: #{pastel.yellow(VersionCheck.current_gem_version)}"
+          log "Latest version found is: #{pastel.green(VersionCheck.latest_gem_version)}"
+          log "Run `#{pastel.green('gem install mux_tf')}` to update!"
+          log pastel.yellow("=" * 80)
+        end
+
+        def process_remedies(remedies, from: nil, level: 1, retry_count: 0)
           remedies = remedies.dup
           remedy = nil
           wrap_log = lambda do |msg, color: nil|
@@ -138,7 +161,7 @@ module MuxTf
           if remedies.delete?(:plan)
             remedy = :plan
             log wrap_log["Running terraform plan ..."], depth: 2
-            plan_status = run_plan(retry_count: retry_count)
+            plan_status = @plan_command.run_plan(retry_count: retry_count)
             results[:plan_status] = plan_status
             return [false, results] unless [:ok, :changes].include?(plan_status)
           end
@@ -185,27 +208,6 @@ module MuxTf
           [true, results]
         end
 
-        def validate
-          log "Validating module ...", depth: 1
-          tf_validate
-        end
-
-        def create_plan(filename, targets: [])
-          log "Preparing Plan ...", depth: 1
-          exit_code, meta = PlanFormatter.pretty_plan(filename, targets: targets)
-          case exit_code
-          when 0
-            [:ok, meta]
-          when 1
-            [:error, meta]
-          when 2
-            [:changes, meta]
-          else
-            log pastel.yellow("terraform plan exited with an unknown exit code: #{exit_code}")
-            [:unknown, meta]
-          end
-        end
-
         def launch_cmd_loop(status)
           return if ENV["NO_CMD"]
 
@@ -243,7 +245,7 @@ module MuxTf
         def build_root_cmd
           root_cmd = define_cmd(nil)
 
-          root_cmd.add_command(plan_cmd)
+          root_cmd.add_command(@plan_command.plan_cmd)
           root_cmd.add_command(apply_cmd)
           root_cmd.add_command(shell_cmd)
           root_cmd.add_command(force_unlock_cmd)
@@ -273,20 +275,26 @@ module MuxTf
         def plan_details_cmd
           define_cmd("details", summary: "Show Plan Details") do |_opts, _args, _cmd|
             puts plan_summary_text
-          end
-        end
 
-        def plan_cmd
-          define_cmd("plan", summary: "Re-run plan") do |_opts, _args, _cmd|
-            run_validate && run_plan
+            unless ENV["JSON_PLAN"]
+              log "Printing Plan Summary ...", depth: 1
+
+              plan_filename = PlanFilenameGenerator.for_path
+              plan = PlanSummaryHandler.from_file(plan_filename)
+              plan.simple_summary do |line|
+                log line
+              end
+            end
+            # puts plan_summary_text if ENV["JSON_PLAN"]
           end
         end
 
         def apply_cmd
           define_cmd("apply", summary: "Apply the current plan") do |_opts, _args, _cmd|
+            plan_filename = PlanFilenameGenerator.for_path
             status = tf_apply(filename: plan_filename)
             if status.success?
-              plan_status = run_plan
+              plan_status = @plan_command.run_plan
               throw :stop, :done if plan_status == :ok
             else
               log "Apply Failed!"
@@ -381,13 +389,18 @@ module MuxTf
 
         def interactive_cmd
           define_cmd("interactive", summary: "Apply interactively") do |_opts, _args, _cmd|
+            plan_filename = PlanFilenameGenerator.for_path
             plan = PlanSummaryHandler.from_file(plan_filename)
             begin
-              abort_message = catch(:abort) { plan.run_interactive }
+              abort_message = catch(:abort) {
+                result = plan.run_interactive
+                log "Re-running apply with the selected resources ..."
+                @plan_command.run_plan(targets: result)
+              }
               if abort_message
                 log pastel.red("Aborted: #{abort_message}")
               else
-                run_plan
+                @plan_command.run_plan
               end
             rescue Exception => e # rubocop:disable Lint/RescueException
               log e.full_message
@@ -395,102 +408,6 @@ module MuxTf
             end
           end
         end
-
-        def print_errors_and_warnings(meta) # rubocop:disable Metrics/AbcSize
-          message = []
-          message << pastel.yellow("#{meta[:warnings].length} Warnings") if meta[:warnings]
-          message << pastel.red("#{meta[:errors].length} Errors") if meta[:errors]
-          if message.length.positive?
-            log ""
-            log "Encountered: #{message.join(' and ')}"
-            log ""
-          end
-
-          meta[:warnings]&.each do |warning|
-            log "-" * 20
-            log pastel.yellow("Warning: #{warning[:message]}")
-            warning[:body]&.each do |line|
-              log pastel.yellow(line), depth: 1
-            end
-            log ""
-          end
-
-          meta[:errors]&.each do |error|
-            log "-" * 20
-            log pastel.red("Error: #{error[:message]}")
-            error[:body]&.each do |line|
-              log pastel.red(line), depth: 1
-            end
-            log ""
-          end
-
-          return unless message.length.positive?
-
-          log ""
-        end
-
-        def detect_remedies_from_plan(meta)
-          remedies = Set.new
-          meta[:errors]&.each do |error|
-            remedies << :plan if error[:message].include?("timeout while waiting for plugin to start")
-          end
-          remedies << :unlock if lock_error?(meta)
-          remedies << :auth if meta[:need_auth]
-          remedies
-        end
-
-        def lock_error?(meta)
-          meta && meta["error"] == "lock"
-        end
-
-        def extract_lock_info(meta)
-          {
-            lock_id: meta["ID"],
-            operation: meta["Operation"],
-            who: meta["Who"],
-            created: meta["Created"]
-          }
-        end
-
-        def run_plan(targets: [], level: 1, retry_count: 0)
-          plan_status, = remedy_retry_helper(from: :plan, level: level, attempt: retry_count) {
-            @last_lock_info = nil
-
-            plan_status, meta = create_plan(plan_filename, targets: targets)
-
-            print_errors_and_warnings(meta)
-
-            remedies = detect_remedies_from_plan(meta)
-
-            if remedies.include?(:unlock)
-              @last_lock_info = extract_lock_info(meta)
-              throw :abort, [plan_status, meta]
-            end
-
-            throw :abort, [plan_status, meta] if remedies.include?(:auth)
-
-            [remedies, plan_status, meta]
-          }
-
-          case plan_status
-          when :ok
-            log "no changes", depth: 1
-          when :error
-            log "something went wrong", depth: 1
-          when :changes
-            unless ENV["JSON_PLAN"]
-              log "Printing Plan Summary ...", depth: 1
-              pretty_plan_summary(plan_filename)
-            end
-            puts plan_summary_text if ENV["JSON_PLAN"]
-          when :unknown
-            # nothing
-          end
-
-          plan_status
-        end
-
-        public :run_plan
 
         def run_upgrade
           exit_code, meta = PlanFormatter.run_tf_init(upgrade: true)
@@ -504,18 +421,6 @@ module MuxTf
             log pastel.yellow("terraform init upgrade exited with an unknown exit code: #{exit_code}")
             [:unknown, meta]
           end
-        end
-
-        def pretty_plan_summary(filename)
-          plan = PlanSummaryHandler.from_file(filename)
-          plan.flat_summary.each do |line|
-            log line, depth: 2
-          end
-          plan.output_summary.each do |line|
-            log line, depth: 2
-          end
-          log "", depth: 2
-          log plan.summary, depth: 2
         end
       end
     end

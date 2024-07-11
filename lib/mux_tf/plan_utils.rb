@@ -21,7 +21,7 @@ module MuxTf
         puts msg.join(" - ")
       end
 
-      def update_placeholders(dst, src, placeholder) # rubocop:disable Metrics/MethodLength
+      def update_placeholders(dst, src, placeholder)
         return unless src
 
         case src
@@ -150,7 +150,7 @@ module MuxTf
         }.join("\n")
       end
 
-      def in_display_representation(value) # rubocop:disable Metrics/MethodLength
+      def in_display_representation(value)
         if valid_json?(value)
           json_body = JSON.pretty_generate(JSON.parse(value))
           wrap(json_body, prefix: "json(", suffix: ")", color: :gray)

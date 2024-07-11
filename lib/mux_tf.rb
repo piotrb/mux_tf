@@ -26,21 +26,13 @@ require "diff/lcs"
 require "diff/lcs/string"
 require "diff/lcs/hunk"
 
-require_relative "mux_tf/version"
-require_relative "mux_tf/coloring"
-require_relative "mux_tf/plan_filename_generator"
-require_relative "mux_tf/resource_tokenizer"
-require_relative "mux_tf/cli"
-require_relative "mux_tf/tmux"
-require_relative "mux_tf/error_handling_methods"
-require_relative "mux_tf/stderr_handler"
-require_relative "mux_tf/terraform_helpers"
-require_relative "mux_tf/plan_formatter"
-require_relative "mux_tf/version_check"
-require_relative "mux_tf/yaml_cache"
-require_relative "mux_tf/plan_summary_handler"
-require_relative "mux_tf/plan_utils"
+require "zeitwerk"
+loader = Zeitwerk::Loader.for_gem
+loader.ignore("#{__dir__}/deps.rb")
+loader.setup
 
 module MuxTf
   ROOT = File.expand_path(File.join(__dir__, ".."))
 end
+
+loader.eager_load

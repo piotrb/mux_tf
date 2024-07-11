@@ -39,4 +39,5 @@ Gem::Specification.new do |spec|
   spec.add_dependency "stateful_parser", "~> 0.1.1"
   spec.add_dependency "tty-prompt"
   spec.add_dependency "tty-table"
+  spec.add_dependency "zeitwerk", "~> 2.6"
 end
