@@ -21,7 +21,11 @@ module MuxTf
     def transform_paths!(hash, key)
       return unless hash[key]
 
-      hash[key].strip!.gsub!(/^\[/, "").gsub!(/\]$/, "") if key == "prefix"
+      if key == "prefix"
+        hash[key].strip!
+        hash[key].gsub!(/^\[/, "")
+        hash[key].gsub!(/\]$/, "")
+      end
 
       hash[key].gsub!("#{Dir.getwd}/", "")
       hash[key].gsub!(Dir.getwd, "")

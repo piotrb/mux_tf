@@ -22,6 +22,7 @@ module MuxTf
           ENV["TF_IN_AUTOMATION"] = "1"
           ENV["TF_INPUT"] = "0"
           ENV["TERRAGRUNT_JSON_LOG"] = "1"
+          ENV["TERRAGRUNT_FORWARD_TF_STDOUT"] = "1"
 
           if args[0] == "cli"
             cmd_loop
