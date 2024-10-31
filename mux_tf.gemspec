@@ -29,7 +29,12 @@ Gem::Specification.new do |spec|
   spec.executables = spec.files.grep(%r{^exe/}) { |f| File.basename(f) }
   spec.require_paths = ["lib"]
 
+  # below activesupport are deps which cause warnings in ruby 3.3
   spec.add_dependency "activesupport", "< 7.0.0"
+  spec.add_dependency "base64"
+  spec.add_dependency "bigdecimal"
+  spec.add_dependency "mutex_m"
+
   spec.add_dependency "awesome_print"
   spec.add_dependency "diff-lcs"
   spec.add_dependency "dotenv"

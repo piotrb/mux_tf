@@ -134,15 +134,15 @@ module MuxTf
           exec tmux_bin, *Shellwords.shellwords(cmd)
         when :popen
           Open3.popen3(tmux_bin, *Shellwords.shellwords(cmd)) do |stdin, stdout, stderr, wait_thr|
-            on_spawn&.call(stdin)
+            on_spawn&.call(stdin, wait_thr)
             Thread.new do
-              until stdout.eof?
+              until stdout.closed? || stdout.eof?
                 line = stdout.gets
                 on_line&.call(:stdout, line)
               end
             end
             Thread.new do
-              until stderr.eof?
+              until stderr.closed? || stderr.eof?
                 line = stderr.gets
                 on_line&.call(:stderr, line)
               end
