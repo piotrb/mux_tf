@@ -325,6 +325,3 @@ Style/ReturnNilInPredicateMethodDefinition: # new in 1.53
   Enabled: true
 Style/YAMLFileRead: # new in 1.53
   Enabled: true
-
-Style/AccessModifierDeclarations:
-  AllowModifiersOnSymbols: true
