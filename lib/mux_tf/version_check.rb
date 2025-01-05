@@ -25,6 +25,6 @@ module MuxTf
       @cache ||= YamlCache.new(File.expand_path("~/.mux_tf.yaml"), default_ttl: 1.hour)
     end
 
-    module_function :has_updates?, :latest_gem_version, :current_gem_version, :cache
+    module_function :has_updates?, :latest_gem_version, :current_gem_version, :cache # rubocop:disable Style/AccessModifierDeclarations
   end
 end

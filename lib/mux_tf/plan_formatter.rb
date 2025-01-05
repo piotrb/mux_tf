@@ -85,7 +85,7 @@ module MuxTf
             log "Running command: #{raw_line.strip} ...", depth: 2
           when :stdout
             parsed_line = JSON.parse(raw_line)
-            parsed_line.keys.each do |key| # rubocop:disable Style/HashEachMethods -- intentional, allow adding keys to hash while iterating
+            parsed_line.keys.each do |key|
               if key[0] == "@"
                 parsed_line[key[1..]] = parsed_line[key]
                 parsed_line.delete(key)
