@@ -94,6 +94,7 @@ module MuxTf
           end
 
           meta[:warnings]&.each do |warning|
+            next if warning[:printed]
             log "-" * 20
             log pastel.yellow("Warning: #{warning[:message]}")
             warning[:body]&.each do |line|
@@ -103,6 +104,7 @@ module MuxTf
           end
 
           meta[:errors]&.each do |error|
+            next if error[:printed]
             log "-" * 20
             log pastel.red("Error: #{error[:message]}")
             error[:body]&.each do |line|
@@ -261,21 +263,9 @@ module MuxTf
           root_cmd
         end
 
-        def plan_summary_text
-          plan_filename = PlanFilenameGenerator.for_path
-          if File.exist?("#{plan_filename}.txt") && File.mtime("#{plan_filename}.txt").to_f >= File.mtime(plan_filename).to_f
-            File.read("#{plan_filename}.txt")
-          else
-            puts "Inspecting Changes ... #{plan_filename}"
-            data = PlanUtils.text_version_of_plan_show(plan_filename)
-            File.write("#{plan_filename}.txt", data)
-            data
-          end
-        end
-
         def plan_details_cmd
           define_cmd("details", summary: "Show Plan Details") do |_opts, _args, _cmd|
-            puts plan_summary_text
+            puts @plan_command.plan_summary_text
 
             unless ENV["JSON_PLAN"]
               log "Printing Plan Summary ...", depth: 1
@@ -315,7 +305,7 @@ module MuxTf
           define_cmd("force-unlock", summary: "Force unlock state after encountering a lock error!") do # rubocop:disable Metrics/BlockLength
             prompt = TTY::Prompt.new(interrupt: :noop)
 
-            lock_info = @last_lock_info
+            lock_info = @plan_command.last_lock_info
 
             if lock_info
               table = TTY::Table.new(header: %w[Field Value])

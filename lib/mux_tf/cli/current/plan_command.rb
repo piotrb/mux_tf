@@ -8,6 +8,8 @@ module MuxTf
         include PiotrbCliUtils::CriCommandSupport
         extend PiotrbCliUtils::Util
 
+        attr_reader :last_lock_info
+
         def plan_cmd
           define_cmd("plan", summary: "Re-run plan") do |_opts, _args, _cmd|
             run_validate && run_plan
@@ -115,6 +117,18 @@ module MuxTf
           plan = PlanSummaryHandler.from_file(filename)
           plan.simple_summary do |line|
             log line, depth: 2
+          end
+        end
+
+        def plan_summary_text
+          plan_filename = PlanFilenameGenerator.for_path
+          if File.exist?("#{plan_filename}.txt") && File.mtime("#{plan_filename}.txt").to_f >= File.mtime(plan_filename).to_f
+            File.read("#{plan_filename}.txt")
+          else
+            puts "Inspecting Changes ... #{plan_filename}"
+            data = PlanUtils.text_version_of_plan_show(plan_filename)
+            File.write("#{plan_filename}.txt", data)
+            data
           end
         end
       end

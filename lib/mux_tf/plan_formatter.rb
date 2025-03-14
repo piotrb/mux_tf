@@ -144,7 +144,7 @@ module MuxTf
         result
       end
 
-      def print_plan_line(parsed_line, without: [])
+      def print_plan_line(parsed_line, without: [], from: nil)
         default_without = [
           :level,
           :module,
@@ -156,8 +156,9 @@ module MuxTf
           :ui
         ]
         extra = parsed_line.without(*default_without, *without)
-        data = parsed_line.merge(extra: extra)
+        data = parsed_line.merge(extra: extra).merge(from: from)
         log_line = [
+          "%<from>s",
           "%<level>-6s",
           "%<module>-12s",
           "%<type>-10s",
@@ -168,6 +169,143 @@ module MuxTf
           data[field].present? ? format(format_string, data) : nil
         }.compact.join(" | ")
         log log_line
+      end
+
+      def print_unhandled_error_line(parsed_line)
+        if parsed_line[:diagnostic]
+          color = :red
+          dinfo = parsed_line[:diagnostic]
+          log "#{pastel.decorate(dinfo['severity'].capitalize, color)}: #{dinfo['summary']}", depth: 3
+          log dinfo["detail"].split("\n"), depth: 4 if dinfo["detail"]
+          log format_validation_range(dinfo, color), depth: 4
+        else
+          p parsed_line
+        end
+      end
+
+      def parse_tf_ui_line(parsed_line, meta, seen)
+        # p(parsed_line)
+        case parsed_line[:type]
+        when "version"
+          meta[:terraform_version] = parsed_line[:terraform]
+          meta[:terraform_ui_version] = parsed_line[:ui]
+        when "apply_start", "refresh_start"
+          first_in_group = !seen.call(parsed_line[:module], "apply_start") &&
+                           !seen.call(parsed_line[:module], "refresh_start")
+          log "Refreshing ", depth: 1, newline: false if first_in_group
+          # {
+          #   :hook=>{
+          #     "resource"=>{
+          #       "addr"=>"data.aws_eks_cluster_auth.this",
+          #       "module"=>"",
+          #       "resource"=>"data.aws_eks_cluster_auth.this",
+          #       "implied_provider"=>"aws",
+          #       "resource_type"=>"aws_eks_cluster_auth",
+          #       "resource_name"=>"this",
+          #       "resource_key"=>nil
+          #     },
+          #     "action"=>"read"
+          #   }
+          # }
+          log ".", newline: false
+        when "apply_complete", "refresh_complete"
+          # {
+          #   :hook=>{
+          #     "resource"=>{
+          #       "addr"=>"data.aws_eks_cluster_auth.this",
+          #       "module"=>"",
+          #       "resource"=>"data.aws_eks_cluster_auth.this",
+          #       "implied_provider"=>"aws",
+          #       "resource_type"=>"aws_eks_cluster_auth",
+          #       "resource_name"=>"this",
+          #       "resource_key"=>nil
+          #     },
+          #     "action"=>"read",
+          #     "id_key"=>"id",
+          #     "id_value"=>"admin",
+          #     "elapsed_seconds"=>0
+          #   }
+          # }
+          # noop
+        when "resource_drift"
+          first_in_group = !seen.call(parsed_line[:module], "resource_drift") &&
+                           !seen.call(parsed_line[:module], "planned_change")
+          # {
+          #   :change=>{
+          #     "resource"=>{"addr"=>"module.application.kubectl_manifest.application", "module"=>"module.application", "resource"=>"kubectl_manifest.application", "implied_provider"=>"kubectl", "resource_type"=>"kubectl_manifest", "resource_name"=>"application", "resource_key"=>nil},
+          #     "action"=>"update"
+          #   }
+          # }
+          if first_in_group
+            log ""
+            log ""
+            log "Planned Changes:"
+          end
+          # {
+          #   :change=>{
+          #     "resource"=>{"addr"=>"aws_iam_policy.crossplane_aws_ecr[0]", "module"=>"", "resource"=>"aws_iam_policy.crossplane_aws_ecr[0]", "implied_provider"=>"aws", "resource_type"=>"aws_iam_policy", "resource_name"=>"crossplane_aws_ecr", "resource_key"=>0},
+          #     "action"=>"update"
+          #   },
+          #   :type=>"resource_drift",
+          #   :level=>"info",
+          #   :message=>"aws_iam_policy.crossplane_aws_ecr[0]: Drift detected (update)",
+          #   :module=>"terraform.ui",
+          #   :timestamp=>"2023-09-26T17:11:46.340117-07:00",
+          #   :stream=>:stdout
+          # }
+
+          log format("[%<action>s] %<addr>s - Drift Detected (%<change_action>s)",
+                     action: PlanSummaryHandler.format_action(parsed_line[:change]["action"]),
+                     addr: PlanSummaryHandler.format_address(parsed_line[:change]["resource"]["addr"]),
+                     change_action: parsed_line[:change]["action"]), depth: 1
+        when "planned_change"
+          first_in_group = !seen.call(parsed_line[:module], "resource_drift") &&
+                           !seen.call(parsed_line[:module], "planned_change")
+          # {
+          #  :change=>
+          #   {"resource"=>
+          #     {"addr"=>"module.application.kubectl_manifest.application",
+          #      "module"=>"module.application",
+          #      "resource"=>"kubectl_manifest.application",
+          #      "implied_provider"=>"kubectl",
+          #      "resource_type"=>"kubectl_manifest",
+          #      "resource_name"=>"application",
+          #      "resource_key"=>nil},
+          #    "action"=>"create"},
+          #  :type=>"planned_change",
+          #  :level=>"info",
+          #  :message=>"module.application.kubectl_manifest.application: Plan to create",
+          #  :module=>"terraform.ui",
+          #  :timestamp=>"2023-08-25T14:48:46.005185-07:00",
+          # }
+          if first_in_group
+            log ""
+            log ""
+            log "Planned Changes:"
+          end
+          log format("[%<action>s] %<addr>s",
+                     action: PlanSummaryHandler.format_action(parsed_line[:change]["action"]),
+                     addr: PlanSummaryHandler.format_address(parsed_line[:change]["resource"]["addr"])), depth: 1
+        when "change_summary"
+          # {
+          #   :changes=>{"add"=>1, "change"=>0, "import"=>0, "remove"=>0, "operation"=>"plan"},
+          #   :type=>"change_summary",
+          #   :level=>"info",
+          #   :message=>"Plan: 1 to add, 0 to change, 0 to destroy.",
+          #   :module=>"terraform.ui",
+          #   :timestamp=>"2023-08-25T14:48:46.005211-07:00",
+          #   :stream=>:stdout
+          # }
+          log ""
+          # puts parsed_line[:message]
+          log "#{parsed_line[:changes]['operation'].capitalize} summary: " + parsed_line[:changes].without("operation").map { |k, v|
+            color = PlanSummaryHandler.color_for_action(k)
+            "#{pastel.yellow(v)} to #{pastel.decorate(k, color)}" if v.positive?
+          }.compact.join(" ")
+
+        else
+          print_plan_line(parsed_line, from: "parse_tf_ui_line,else")
+        end
       end
 
       # rubocop:disable Metrics/AbcSize
@@ -185,141 +323,25 @@ module MuxTf
           when "info"
             case parsed_line[:module]
             when "terraform.ui"
-              case parsed_line[:type]
-              when "version"
-                meta[:terraform_version] = parsed_line[:terraform]
-                meta[:terraform_ui_version] = parsed_line[:ui]
-              when "apply_start", "refresh_start"
-                first_in_group = !seen.call(parsed_line[:module], "apply_start") &&
-                                 !seen.call(parsed_line[:module], "refresh_start")
-                log "Refreshing ", depth: 1, newline: false if first_in_group
-                # {
-                #   :hook=>{
-                #     "resource"=>{
-                #       "addr"=>"data.aws_eks_cluster_auth.this",
-                #       "module"=>"",
-                #       "resource"=>"data.aws_eks_cluster_auth.this",
-                #       "implied_provider"=>"aws",
-                #       "resource_type"=>"aws_eks_cluster_auth",
-                #       "resource_name"=>"this",
-                #       "resource_key"=>nil
-                #     },
-                #     "action"=>"read"
-                #   }
-                # }
-                log ".", newline: false
-              when "apply_complete", "refresh_complete"
-                # {
-                #   :hook=>{
-                #     "resource"=>{
-                #       "addr"=>"data.aws_eks_cluster_auth.this",
-                #       "module"=>"",
-                #       "resource"=>"data.aws_eks_cluster_auth.this",
-                #       "implied_provider"=>"aws",
-                #       "resource_type"=>"aws_eks_cluster_auth",
-                #       "resource_name"=>"this",
-                #       "resource_key"=>nil
-                #     },
-                #     "action"=>"read",
-                #     "id_key"=>"id",
-                #     "id_value"=>"admin",
-                #     "elapsed_seconds"=>0
-                #   }
-                # }
-                # noop
-              when "resource_drift"
-                first_in_group = !seen.call(parsed_line[:module], "resource_drift") &&
-                                 !seen.call(parsed_line[:module], "planned_change")
-                # {
-                #   :change=>{
-                #     "resource"=>{"addr"=>"module.application.kubectl_manifest.application", "module"=>"module.application", "resource"=>"kubectl_manifest.application", "implied_provider"=>"kubectl", "resource_type"=>"kubectl_manifest", "resource_name"=>"application", "resource_key"=>nil},
-                #     "action"=>"update"
-                #   }
-                # }
-                if first_in_group
-                  log ""
-                  log ""
-                  log "Planned Changes:"
-                end
-                # {
-                #   :change=>{
-                #     "resource"=>{"addr"=>"aws_iam_policy.crossplane_aws_ecr[0]", "module"=>"", "resource"=>"aws_iam_policy.crossplane_aws_ecr[0]", "implied_provider"=>"aws", "resource_type"=>"aws_iam_policy", "resource_name"=>"crossplane_aws_ecr", "resource_key"=>0},
-                #     "action"=>"update"
-                #   },
-                #   :type=>"resource_drift",
-                #   :level=>"info",
-                #   :message=>"aws_iam_policy.crossplane_aws_ecr[0]: Drift detected (update)",
-                #   :module=>"terraform.ui",
-                #   :timestamp=>"2023-09-26T17:11:46.340117-07:00",
-                #   :stream=>:stdout
-                # }
-
-                log format("[%<action>s] %<addr>s - Drift Detected (%<change_action>s)",
-                           action: PlanSummaryHandler.format_action(parsed_line[:change]["action"]),
-                           addr: PlanSummaryHandler.format_address(parsed_line[:change]["resource"]["addr"]),
-                           change_action: parsed_line[:change]["action"]), depth: 1
-              when "planned_change"
-                first_in_group = !seen.call(parsed_line[:module], "resource_drift") &&
-                                 !seen.call(parsed_line[:module], "planned_change")
-                # {
-                #  :change=>
-                #   {"resource"=>
-                #     {"addr"=>"module.application.kubectl_manifest.application",
-                #      "module"=>"module.application",
-                #      "resource"=>"kubectl_manifest.application",
-                #      "implied_provider"=>"kubectl",
-                #      "resource_type"=>"kubectl_manifest",
-                #      "resource_name"=>"application",
-                #      "resource_key"=>nil},
-                #    "action"=>"create"},
-                #  :type=>"planned_change",
-                #  :level=>"info",
-                #  :message=>"module.application.kubectl_manifest.application: Plan to create",
-                #  :module=>"terraform.ui",
-                #  :timestamp=>"2023-08-25T14:48:46.005185-07:00",
-                # }
-                if first_in_group
-                  log ""
-                  log ""
-                  log "Planned Changes:"
-                end
-                log format("[%<action>s] %<addr>s",
-                           action: PlanSummaryHandler.format_action(parsed_line[:change]["action"]),
-                           addr: PlanSummaryHandler.format_address(parsed_line[:change]["resource"]["addr"])), depth: 1
-              when "change_summary"
-                # {
-                #   :changes=>{"add"=>1, "change"=>0, "import"=>0, "remove"=>0, "operation"=>"plan"},
-                #   :type=>"change_summary",
-                #   :level=>"info",
-                #   :message=>"Plan: 1 to add, 0 to change, 0 to destroy.",
-                #   :module=>"terraform.ui",
-                #   :timestamp=>"2023-08-25T14:48:46.005211-07:00",
-                #   :stream=>:stdout
-                # }
-                log ""
-                # puts parsed_line[:message]
-                log "#{parsed_line[:changes]['operation'].capitalize} summary: " + parsed_line[:changes].without("operation").map { |k, v|
-                  color = PlanSummaryHandler.color_for_action(k)
-                  "#{pastel.yellow(v)} to #{pastel.decorate(k, color)}" if v.positive?
-                }.compact.join(" ")
-
-              else
-                print_plan_line(parsed_line)
-              end
+              parse_tf_ui_line(parsed_line, meta, seen)
+            when "tofu.ui"
+              parse_tf_ui_line(parsed_line, meta, seen)
             else
-              print_plan_line(parsed_line)
+              print_plan_line(parsed_line, from: "pretty_plan_v2,info,else")
             end
           when "error"
             if parsed_line[:diagnostic]
               handled_error = false
               muted_error = false
+              current_meta_error = {}
               unless parsed_line[:module] == "terragrunt" && parsed_line[:type] == "tf_failed"
                 meta[:errors] ||= []
-                meta[:errors] << {
+                current_meta_error =  {
                   type: :error,
                   message: parsed_line[:diagnostic]["summary"],
                   body: parsed_line[:diagnostic]["detail"].split("\n")
                 }
+                meta[:errors] << current_meta_error
               end
 
               if parsed_line[:diagnostic]["summary"] == "Error acquiring the state lock"
@@ -332,13 +354,15 @@ module MuxTf
 
               unless muted_error
                 if handled_error
-                  print_plan_line(parsed_line, without: [:diagnostic])
+                  print_plan_line(parsed_line, without: [:diagnostic], from: "pretty_plan_v2,error,handled")
                 else
-                  print_plan_line(parsed_line)
+                  # print_plan_line(parsed_line, from: "pretty_plan_v2,error,unhandled_error")
+                  print_unhandled_error_line(parsed_line)
+                  current_meta_error[:printed] = true
                 end
               end
             else
-              print_plan_line(parsed_line)
+              print_plan_line(parsed_line, from: "pretty_plan_v2,error,else")
             end
           end
 
