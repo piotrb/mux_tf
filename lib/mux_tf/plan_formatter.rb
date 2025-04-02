@@ -177,7 +177,7 @@ module MuxTf
           dinfo = parsed_line[:diagnostic]
           log "#{pastel.decorate(dinfo['severity'].capitalize, color)}: #{dinfo['summary']}", depth: 3
           log dinfo["detail"].split("\n"), depth: 4 if dinfo["detail"]
-          log format_validation_range(dinfo, color), depth: 4
+          log format_validation_range(dinfo, color), depth: 4 if dinfo["range"]
         else
           p parsed_line
         end
