@@ -94,6 +94,7 @@ module MuxTf
       if parsed_line[:diagnostic]
         color = :red
         dinfo = parsed_line[:diagnostic]
+
         log "#{pastel.decorate(dinfo['severity'].capitalize, color)}: #{dinfo['summary']}", depth: 3
         log dinfo["detail"].split("\n"), depth: 4 if dinfo["detail"]
         log format_validation_range(dinfo, color), depth: 4 if dinfo["range"]
@@ -106,6 +107,7 @@ module MuxTf
 
     def format_validation_range(dinfo, color)
       range = dinfo["range"]
+
       # filename: "../../../modules/pods/jane_pod/main.tf"
       # start:
       #   line: 151
@@ -154,6 +156,7 @@ module MuxTf
           end
         end
       elsif dinfo["snippet"]
+        snippet = dinfo["snippet"]
         # {
         #   "context"=>"locals",
         #   "code"=>"        aws_iam_policy.crossplane_aws_ecr.arn",
@@ -163,8 +166,21 @@ module MuxTf
         #   "values"=>[]
         # }
         output << "Code:"
-        dinfo["snippet"]["code"].split("\n").each do |l|
-          output << " > #{l}"
+        output << "in #{snippet['context']}"
+        output << "#{snippet['start_line']}: #{snippet['code']}"
+        line = snippet["start_line"]
+        snippet["code"].split("\n").each do |l|
+          output << "#{line}: #{l}"
+          line += 1
+        end
+      end
+
+      if dinfo["snippet"] && dinfo["snippet"]["values"]&.any?
+        snippet = dinfo["snippet"]
+        output << ""
+        output << "Values:"
+        snippet["values"].each do |value|
+          output << "  #{pastel.bold(value['traversal'])} #{value['statement']}"
         end
       end
 
