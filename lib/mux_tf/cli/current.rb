@@ -223,13 +223,26 @@ module MuxTf
           cmd_loop(status)
         end
 
-        def cmd_loop(status = nil)
+        def cmd_loop(initial_status = nil)
           root_cmd = build_root_cmd
 
           folder_name = File.basename(Dir.getwd)
 
           puts root_cmd.help
 
+          status = initial_status
+
+          prompt = proc { format_prompt(folder_name, status) }
+
+          run_cmd_loop(prompt) do |cmd|
+            status = nil
+            throw(:stop, :no_input) if cmd == ""
+            args = Shellwords.split(cmd)
+            root_cmd.run(args, {}, hard_exit: false)
+          end
+        end
+
+        def format_prompt(folder_name, status)
           prompt = "#{folder_name} => "
           case status
           when :error, :unknown
@@ -237,12 +250,7 @@ module MuxTf
           when :changes
             prompt = "[#{pastel.yellow(status.to_s)}] #{prompt}"
           end
-
-          run_cmd_loop(prompt) do |cmd|
-            throw(:stop, :no_input) if cmd == ""
-            args = Shellwords.split(cmd)
-            root_cmd.run(args, {}, hard_exit: false)
-          end
+          prompt
         end
 
         def build_root_cmd

@@ -40,7 +40,7 @@ Gem::Specification.new do |spec|
   spec.add_dependency "dotenv"
   spec.add_dependency "hashdiff"
   spec.add_dependency "pastel"
-  spec.add_dependency "piotrb_cli_utils", "~> 0.1.1"
+  spec.add_dependency "piotrb_cli_utils", "~> 0.2.0"
   spec.add_dependency "stateful_parser", "~> 0.1.1"
   spec.add_dependency "tty-prompt"
   spec.add_dependency "tty-table"
