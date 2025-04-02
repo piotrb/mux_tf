@@ -45,4 +45,9 @@ Gem::Specification.new do |spec|
   spec.add_dependency "tty-prompt"
   spec.add_dependency "tty-table"
   spec.add_dependency "zeitwerk", "~> 2.6"
+
+  # stdlib suff
+  spec.add_dependency "ostruct"
+  spec.add_dependency "benchmark"
+  spec.add_dependency "pstore"
 end
