@@ -277,11 +277,12 @@ module MuxTf
         def plan_details_cmd
           define_cmd("details", summary: "Show Plan Details") do |_opts, _args, _cmd|
             plan_filename = PlanFilenameGenerator.for_path
-            @plan_command.pretty_plan_summary_text(plan_filename)
+            plan = PlanSummaryHandler.from_file(plan_filename)
+
+            log plan.plan_text_output
 
             log ""
 
-            plan = PlanSummaryHandler.from_file(plan_filename)
             log "Resource Summary:"
             plan.simple_summary do |line|
               log line

@@ -56,33 +56,28 @@ module MuxTf
           when :changes
             if ENV["JSON_PLAN"]
               plan_filename = PlanFilenameGenerator.for_path
+              plan = PlanSummaryHandler.from_file(plan_filename)
 
-              pretty_plan_summary_text(plan_filename)
+              log plan.plan_text_output
 
               log ""
 
-              pretty_plan_summary(plan_filename)
+              plan.simple_summary do |line|
+                log line, depth: 2
+              end
             else
               log "Printing Plan Summary ...", depth: 1
               plan_filename = PlanFilenameGenerator.for_path
-              pretty_plan_summary(plan_filename)
+              plan = PlanSummaryHandler.from_file(plan_filename)
+              plan.simple_summary do |line|
+                log line, depth: 2
+              end
             end
           when :unknown
             # nothing
           end
 
           plan_status
-        end
-
-        def pretty_plan_summary_text(filename)
-          plan = PlanTextSummaryHandler.from_file(filename)
-
-          log "Resource Changes:"
-
-          plan.each_resource do |key, payload|
-            log ""
-            log payload[:raw_data].split("\n"), depth: 0
-          end
         end
 
         private
@@ -129,13 +124,6 @@ module MuxTf
             who: meta["Who"],
             created: meta["Created"]
           }
-        end
-
-        def pretty_plan_summary(filename)
-          plan = PlanSummaryHandler.from_file(filename)
-          plan.simple_summary do |line|
-            log line, depth: 2
-          end
         end
       end
     end

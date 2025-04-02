@@ -99,6 +99,7 @@ module MuxTf
     end
 
     def initialize(data)
+      @data = data
       @parts = []
 
       data["output_changes"]&.each do |output_name, v|
@@ -331,6 +332,10 @@ module MuxTf
       else
         result
       end
+    end
+
+    def plan_text_output
+      PlanUtils.text_version_of_plan_show_from_data(@data)
     end
 
     private

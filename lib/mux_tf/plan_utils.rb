@@ -12,12 +12,17 @@ module MuxTf
     class << self
       def warning(message, binding_arg: binding)
         stack = binding_arg.send(:caller)
-        stack_line = stack[0].match(/^(?<path>.+):(?<ln>\d+):in `(?<method>.+)'$/).named_captures
-        stack_line["path"].gsub!(MuxTf::ROOT, pastel.gray("{mux_tf}"))
-        msg = [
-          "#{pastel.orange('WARNING')}: #{message}",
-          "at #{pastel.cyan(stack_line['path'])}:#{pastel.white(stack_line['ln'])}:in `#{pastel.cyan(stack_line['method'])}'"
-        ]
+        stack_match = stack[0].match(/^(?<path>.+):(?<ln>\d+):in [`'](?<method>.+)'$/)
+        msg = []
+        if stack_match
+          stack_line = stack_match.named_captures
+          stack_line["path"].gsub!(MuxTf::ROOT, pastel.gray("{mux_tf}"))
+          msg << "#{pastel.orange('WARNING')}: #{message}"
+          msg << "at #{pastel.cyan(stack_line['path'])}:#{pastel.white(stack_line['ln'])}:in `#{pastel.cyan(stack_line['method'])}'"
+        else
+          p [stack_match, stack[0]]
+          msg << "#{pastel.orange('WARNING')}: #{message}"
+        end
         puts msg.join(" - ")
       end
 
@@ -122,6 +127,8 @@ module MuxTf
           pastel.red(symbol)
         when "?"
           pastel.orange(symbol)
+        when "±"
+          pastel.bright_red(symbol)
         else
           warning "Unknown symbol: #{symbol.inspect}"
           symbol
@@ -343,12 +350,7 @@ module MuxTf
         output.join("\n")
       end
 
-      def text_version_of_plan_show(plan_filename)
-        result = tf_show(plan_filename, capture: true, json: true)
-        data = result.parsed_output
-
-        # Plan: 0 to add, 1 to change, 0 to destroy.
-
+      def text_version_of_plan_show_from_data(data)
         output = []
 
         output << "Terraform will perform the following actions:"
@@ -365,7 +367,9 @@ module MuxTf
           output << ""
           output << "Resource Changes:"
           data["resource_changes"].each do |resource|
-            output << tf_show_json_resource(resource) if resource["change"]["actions"] != ["no-op"]
+            next if resource["change"]["actions"] == ["no-op"]
+
+            output << tf_show_json_resource(resource)
           end
         end
 
