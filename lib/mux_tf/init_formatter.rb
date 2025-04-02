@@ -150,7 +150,7 @@ module MuxTf
             when /^- Installing (?<module>[^ ]+) v(?<version>.+)\.\.\.$/
               info = $LAST_MATCH_INFO.named_captures
               log "- [INSTALLING] #{info['module']} v#{info['version']}", depth: 2
-            when /^- Installed (?<module>[^ ]+) v(?<version>.+) \(signed(?:, | by)(?: a)? (?<signed>.+)\)$/
+            when /^- Installed (?<module>[^ ]+) v(?<version>[^ ]+) \((?:signed, key ID)?(?:, | by)?(?: a)? (?<signed>.+)\)$/
               info = $LAST_MATCH_INFO.named_captures
               log "- [INSTALLED] #{info['module']} v#{info['version']} (#{info['signed']})", depth: 2
             when /^- Using previously-installed (?<module>[^ ]+) v(?<version>.+)$/
