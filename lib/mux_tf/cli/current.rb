@@ -36,6 +36,7 @@ module MuxTf
             if args[0] && valid_commands.include?(args[0])
               stop_reason = catch(:stop) {
                 root_cmd.run(args, {}, hard_exit: true)
+                nil
               }
               log pastel.red("Stopped: #{stop_reason}") if stop_reason
               return
@@ -275,18 +276,16 @@ module MuxTf
 
         def plan_details_cmd
           define_cmd("details", summary: "Show Plan Details") do |_opts, _args, _cmd|
-            puts @plan_command.plan_summary_text
+            plan_filename = PlanFilenameGenerator.for_path
+            @plan_command.pretty_plan_summary_text(plan_filename)
 
-            unless ENV["JSON_PLAN"]
-              log "Printing Plan Summary ...", depth: 1
+            log ""
 
-              plan_filename = PlanFilenameGenerator.for_path
-              plan = PlanSummaryHandler.from_file(plan_filename)
-              plan.simple_summary do |line|
-                log line
-              end
+            plan = PlanSummaryHandler.from_file(plan_filename)
+            log "Resource Summary:"
+            plan.simple_summary do |line|
+              log line
             end
-            # puts plan_summary_text if ENV["JSON_PLAN"]
           end
         end
 

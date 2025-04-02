@@ -17,7 +17,7 @@ module MuxTf
         if File.exist?("#{file}.json") && File.mtime("#{file}.json").to_f >= File.mtime(file).to_f
           JSON.parse(File.read("#{file}.json"))
         else
-          puts "Analyzing changes ..."
+          puts "Analyzing changes ... #{file}"
           result = tf_show(file, json: true)
           data = result.parsed_output
           File.write("#{file}.json", JSON.dump(data))

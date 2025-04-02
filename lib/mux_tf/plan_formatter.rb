@@ -94,7 +94,7 @@ module MuxTf
         log log_line
       end
 
-      def parse_tf_ui_line(parsed_line, meta, seen)
+      def parse_tf_ui_line(parsed_line, meta, seen, skip_plan_summary: false)
         # p(parsed_line)
         case parsed_line[:type]
         when "version"
@@ -170,49 +170,57 @@ module MuxTf
                      addr: PlanSummaryHandler.format_address(parsed_line[:change]["resource"]["addr"]),
                      change_action: parsed_line[:change]["action"]), depth: 1
         when "planned_change"
-          first_in_group = !seen.call(parsed_line[:module], "resource_drift") &&
-                           !seen.call(parsed_line[:module], "planned_change")
-          # {
-          #  :change=>
-          #   {"resource"=>
-          #     {"addr"=>"module.application.kubectl_manifest.application",
-          #      "module"=>"module.application",
-          #      "resource"=>"kubectl_manifest.application",
-          #      "implied_provider"=>"kubectl",
-          #      "resource_type"=>"kubectl_manifest",
-          #      "resource_name"=>"application",
-          #      "resource_key"=>nil},
-          #    "action"=>"create"},
-          #  :type=>"planned_change",
-          #  :level=>"info",
-          #  :message=>"module.application.kubectl_manifest.application: Plan to create",
-          #  :module=>"terraform.ui",
-          #  :timestamp=>"2023-08-25T14:48:46.005185-07:00",
-          # }
-          if first_in_group
-            log ""
-            log ""
-            log "Planned Changes:"
+          if skip_plan_summary
+            log "" if first_in_group
+          else
+            first_in_group = !seen.call(parsed_line[:module], "resource_drift") &&
+                             !seen.call(parsed_line[:module], "planned_change")
+            # {
+            #  :change=>
+            #   {"resource"=>
+            #     {"addr"=>"module.application.kubectl_manifest.application",
+            #      "module"=>"module.application",
+            #      "resource"=>"kubectl_manifest.application",
+            #      "implied_provider"=>"kubectl",
+            #      "resource_type"=>"kubectl_manifest",
+            #      "resource_name"=>"application",
+            #      "resource_key"=>nil},
+            #    "action"=>"create"},
+            #  :type=>"planned_change",
+            #  :level=>"info",
+            #  :message=>"module.application.kubectl_manifest.application: Plan to create",
+            #  :module=>"terraform.ui",
+            #  :timestamp=>"2023-08-25T14:48:46.005185-07:00",
+            # }
+            if first_in_group
+              log ""
+              log ""
+              log "Planned Changes:"
+            end
+            log format("[%<action>s] %<addr>s",
+                       action: PlanSummaryHandler.format_action(parsed_line[:change]["action"]),
+                       addr: PlanSummaryHandler.format_address(parsed_line[:change]["resource"]["addr"])), depth: 1
           end
-          log format("[%<action>s] %<addr>s",
-                     action: PlanSummaryHandler.format_action(parsed_line[:change]["action"]),
-                     addr: PlanSummaryHandler.format_address(parsed_line[:change]["resource"]["addr"])), depth: 1
         when "change_summary"
-          # {
-          #   :changes=>{"add"=>1, "change"=>0, "import"=>0, "remove"=>0, "operation"=>"plan"},
-          #   :type=>"change_summary",
-          #   :level=>"info",
-          #   :message=>"Plan: 1 to add, 0 to change, 0 to destroy.",
-          #   :module=>"terraform.ui",
-          #   :timestamp=>"2023-08-25T14:48:46.005211-07:00",
-          #   :stream=>:stdout
-          # }
-          log ""
-          # puts parsed_line[:message]
-          log "#{parsed_line[:changes]['operation'].capitalize} summary: " + parsed_line[:changes].without("operation").map { |k, v|
-            color = PlanSummaryHandler.color_for_action(k)
-            "#{pastel.yellow(v)} to #{pastel.decorate(k, color)}" if v.positive?
-          }.compact.join(" ")
+          if skip_plan_summary
+            log ""
+          else
+            # {
+            #   :changes=>{"add"=>1, "change"=>0, "import"=>0, "remove"=>0, "operation"=>"plan"},
+            #   :type=>"change_summary",
+            #   :level=>"info",
+            #   :message=>"Plan: 1 to add, 0 to change, 0 to destroy.",
+            #   :module=>"terraform.ui",
+            #   :timestamp=>"2023-08-25T14:48:46.005211-07:00",
+            #   :stream=>:stdout
+            # }
+            log ""
+            # puts parsed_line[:message]
+            log "#{parsed_line[:changes]['operation'].capitalize} summary: " + parsed_line[:changes].without("operation").map { |k, v|
+              color = PlanSummaryHandler.color_for_action(k)
+              "#{pastel.yellow(v)} to #{pastel.decorate(k, color)}" if v.positive?
+            }.compact.join(" ")
+          end
 
         when "output"
           false
@@ -235,9 +243,9 @@ module MuxTf
           when "info"
             case parsed_line[:module]
             when "terraform.ui"
-              parse_tf_ui_line(parsed_line, meta, seen)
+              parse_tf_ui_line(parsed_line, meta, seen, skip_plan_summary: true)
             when "tofu.ui" # rubocop:disable Lint/DuplicateBranch
-              parse_tf_ui_line(parsed_line, meta, seen)
+              parse_tf_ui_line(parsed_line, meta, seen, skip_plan_summary: true)
             else
               print_plan_line(parsed_line, from: "pretty_plan_v2,info,else")
             end
