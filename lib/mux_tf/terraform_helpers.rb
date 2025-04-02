@@ -63,12 +63,13 @@ module MuxTf
       JSON.parse(stdout)
     end
 
-    def tf_init(input: nil, upgrade: nil, reconfigure: nil, color: true, &block)
+    def tf_init(input: nil, upgrade: nil, reconfigure: nil, color: true, json: false, &block)
       args = []
       args << "-input=#{input.inspect}" unless input.nil?
       args << "-upgrade" unless upgrade.nil?
       args << "-reconfigure" unless reconfigure.nil?
       args << "-no-color" unless color
+      args << "-json" if json
 
       cmd = tf_prepare_command(["init", *args], need_auth: true)
       stream_terraform(cmd, split_streams: true, &block)

@@ -95,6 +95,7 @@ module MuxTf
 
           meta[:warnings]&.each do |warning|
             next if warning[:printed]
+
             log "-" * 20
             log pastel.yellow("Warning: #{warning[:message]}")
             warning[:body]&.each do |line|
@@ -105,6 +106,7 @@ module MuxTf
 
           meta[:errors]&.each do |error|
             next if error[:printed]
+
             log "-" * 20
             log pastel.red("Error: #{error[:message]}")
             error[:body]&.each do |line|
@@ -154,9 +156,9 @@ module MuxTf
           if remedies.delete? :init
             remedy = :init
             log wrap_log["Running terraform init ..."], depth: 2
-            exit_code, meta = PlanFormatter.run_tf_init
+            exit_code, meta = InitFormatter.run_tf_init
             print_errors_and_warnings(meta)
-            remedies = PlanFormatter.init_status_to_remedies(exit_code, meta)
+            remedies = InitFormatter.init_status_to_remedies(exit_code, meta)
             status, r_results = process_remedies(remedies, from: from, level: level + 1)
             results.merge!(r_results)
             return [true, r_results] if status
@@ -172,9 +174,9 @@ module MuxTf
             remedy = :reconfigure
             log wrap_log["Running terraform init ..."], depth: 2
             result = remedy_retry_helper(from: :reconfigure, level: level + 1, attempt: retry_count) {
-              exit_code, meta = PlanFormatter.run_tf_init(reconfigure: true)
+              exit_code, meta = InitFormatter.run_tf_init(reconfigure: true)
               print_errors_and_warnings(meta)
-              remedies = PlanFormatter.init_status_to_remedies(exit_code, meta)
+              remedies = InitFormatter.init_status_to_remedies(exit_code, meta)
               [remedies, exit_code, meta]
             }
             unless result
@@ -356,7 +358,7 @@ module MuxTf
 
         def init_cmd
           define_cmd("init", summary: "Re-run init") do |_opts, _args, _cmd|
-            exit_code, meta = PlanFormatter.run_tf_init
+            exit_code, meta = InitFormatter.run_tf_init
             print_errors_and_warnings(meta)
             if exit_code != 0
               log meta.inspect unless meta.empty?
@@ -377,7 +379,7 @@ module MuxTf
 
         def reconfigure_cmd
           define_cmd("reconfigure", summary: "Reconfigure modules/plguins") do |_opts, _args, _cmd|
-            exit_code, meta = PlanFormatter.run_tf_init(reconfigure: true)
+            exit_code, meta = InitFormatter.run_tf_init(reconfigure: true)
             print_errors_and_warnings(meta)
             if exit_code != 0
               log meta.inspect unless meta.empty?
@@ -409,7 +411,7 @@ module MuxTf
         end
 
         def run_upgrade
-          exit_code, meta = PlanFormatter.run_tf_init(upgrade: true)
+          exit_code, meta = InitFormatter.run_tf_init(upgrade: true)
           print_errors_and_warnings(meta)
           case exit_code
           when 0
