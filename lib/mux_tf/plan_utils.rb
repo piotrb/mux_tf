@@ -109,11 +109,11 @@ module MuxTf
         else
           false
         end
-      rescue Psych::DisallowedClass => e
-        ap e
+      rescue Psych::DisallowedClass => _e
+        # ap e
         false
-      rescue Psych::SyntaxError => e # rubocop:disable Lint/DuplicateBranch
-        ap e
+      rescue Psych::SyntaxError => _e # rubocop:disable Lint/DuplicateBranch
+        # ap e
         false
       end
 
@@ -129,6 +129,8 @@ module MuxTf
           pastel.orange(symbol)
         when "±"
           pastel.bright_red(symbol)
+        when ">"
+          pastel.blue(symbol)
         else
           warning "Unknown symbol: #{symbol.inspect}"
           symbol
@@ -318,18 +320,36 @@ module MuxTf
 
         output << ""
         output << "#{global_indent}#{pastel.bold("# #{resource['address']}")} will be #{pretty_action}"
+        output << "#{global_indent}  >> #{action_reason_to_text(resource['action_reason'])}" if resource["action_reason"]
         output << "#{global_indent}#{colorize_symbol(symbol)} resource \"#{resource['type']}\" \"#{resource['name']}\" {"
         diff = tf_show_json_resource_diff(resource)
         max_diff_key_length = diff.map { |change| change[1].length }.max
+
+        # p resource["change"]["replace_paths"] if resource["change"]["replace_paths"]
+
+        fields_which_caused_replacement = []
+
+        if resource["change"]["replace_paths"]
+          if resource["change"]["replace_paths"].length != 1
+            warning "Multiple replace paths found for resource #{resource['address']}: #{resource['change']['replace_paths'].inspect}"
+          elsif resource["change"]["replace_paths"][0].length != 1
+            warning "Multiple fields found to be replaced for resource #{resource['address']}: #{resource['change']['replace_paths'].inspect}"
+          else
+            fields_which_caused_replacement << resource["change"]["replace_paths"][0][0]
+          end
+        end
+
         diff.each do |change|
           change_symbol, key, *_values = change
           prefix = format("#{global_indent}  #{colorize_symbol(change_symbol)} %s = ", key.ljust(max_diff_key_length))
+          suffix = ""
+          suffix = " (forces replacement)" if fields_which_caused_replacement.include?(key)
           blank_prefix = " " * pastel.strip(prefix).length
           format_value(change).each_with_index do |line, index|
             output << if index.zero?
-                        "#{prefix}#{line}"
+                        "#{prefix}#{line}#{suffix}"
                       else
-                        "#{blank_prefix}#{line}"
+                        "#{blank_prefix}#{line}#{suffix}"
                       end
           end
         end
@@ -348,6 +368,34 @@ module MuxTf
         output << "#{global_indent}}"
 
         output.join("\n")
+      end
+
+      # See https://developer.hashicorp.com/terraform/internals/json-format
+      def action_reason_to_text(action_reason)
+        case action_reason
+        when "replace_because_tainted"
+          "because the object is tainted in the prior state"
+        when "replace_because_cannot_update"
+          "because the provider does not support updating the object, or the changed attributes"
+        when "replace_by_request"
+          "because the user requested the object to be replaced"
+        when "delete_because_no_resource_config"
+          "because the object is no longer in the configuration"
+        when "delete_because_no_module"
+          "because the module this object belongs to is no longer in the configuration"
+        when "delete_because_wrong_repetition"
+          "because of the repetition mode has changed"
+        when "delete_because_count_index"
+          "because the repetition count has changed"
+        when "delete_because_each_key"
+          "because the repetition key has changed"
+        when "read_because_config_unknown"
+          "because reading this will only be possible during apply"
+        when "read_because_dependency_pending"
+          "because reading this will only be possible after a dependency is available"
+        else
+          "because #{action_reason}"
+        end
       end
 
       def text_version_of_plan_show_from_data(data)

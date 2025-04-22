@@ -7,20 +7,32 @@ module MuxTf
         when :command
           log "Running command: #{raw_line.strip} ...", depth: 2
         when :stdout
-          parsed_line = JSON.parse(raw_line)
-          parsed_line.keys.each do |key|
-            if key[0] == "@"
-              parsed_line[key[1..]] = parsed_line[key]
-              parsed_line.delete(key)
+          begin
+            parsed_line = JSON.parse(raw_line)
+            parsed_line.keys.each do |key|
+              if key[0] == "@"
+                parsed_line[key[1..]] = parsed_line[key]
+                parsed_line.delete(key)
+              end
             end
+            parsed_line.symbolize_keys!
+            parsed_line[:stream] = stream
+            if last_stderr_line
+              emit_line_helper(last_stderr_line, &block)
+              last_stderr_line = nil
+            end
+            emit_line_helper(parsed_line, &block)
+          rescue JSON::ParserError
+            # eg: "[WARN] Provider spacelift-io/spacelift (registry.opentofu.org) gpg key expired, this will fail in future versions of OpenTofu\n"
+            # treat the line as a normal log line
+            parsed_line = {
+              message: raw_line.strip,
+              module: "non-json-log"
+            }
+            parsed_line[:level] = raw_line[0..-2].strip if raw_line.match?(/^[A-Z]+/)
+            parsed_line[:stream] = stream
+            emit_line_helper(parsed_line, &block)
           end
-          parsed_line.symbolize_keys!
-          parsed_line[:stream] = stream
-          if last_stderr_line
-            emit_line_helper(last_stderr_line, &block)
-            last_stderr_line = nil
-          end
-          emit_line_helper(parsed_line, &block)
         when :stderr
           parsed_line = parse_non_json_plan_line(raw_line)
           parsed_line[:stream] = stream

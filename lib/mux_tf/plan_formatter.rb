@@ -308,17 +308,17 @@ module MuxTf
         parser.state(:output_info, /^Changes to Outputs:$/, [:none])
         parser.state(:none, /^$/, [:output_info])
 
-        parser.state(:plan_info, /Terraform will perform the following actions:/, [:none])
-        parser.state(:plan_info, /You can apply this plan to save these new output values to the Terraform/, [:none])
+        parser.state(:plan_info, /(?:Terraform|OpenTofu) will perform the following actions:/, [:none])
+        parser.state(:plan_info, /You can apply this plan to save these new output values to the (?:Terraform|OpenTofu) state/, [:none])
         parser.state(:plan_summary, /^Plan:/, [:plan_info])
 
-        parser.state(:plan_legend, /^Terraform used the selected providers to generate the following execution$/)
+        parser.state(:plan_legend, /^(?:Terraform|OpenTofu) used the selected providers to generate the following execution$/)
         parser.state(:none, /^$/, [:plan_legend])
 
-        parser.state(:plan_info, /Terraform planned the following actions, but then encountered a problem:/, [:none])
+        parser.state(:plan_info, /(?:Terraform|OpenTofu) planned the following actions, but then encountered a problem:/, [:none])
         parser.state(:plan_info, /No changes. Your infrastructure matches the configuration./, [:none])
 
-        parser.state(:plan_error, /Planning failed. Terraform encountered an error while generating this plan./, [:refreshing, :none])
+        parser.state(:plan_error, /Planning failed. (?:Terraform|OpenTofu) encountered an error while generating this plan./, [:refreshing, :none])
 
         # this extends the error block to include the lock info
         parser.state(:error_lock_info, /Lock Info/, [:error_block_error])

@@ -166,6 +166,10 @@ module MuxTf
               # noop
             when %r{^- terraform\.io/builtin/terraform is built in to OpenTofu}
               # noop
+            when /Providers are signed by their developers./
+              # noop
+            when /OpenTofu has created a lock file/
+              # noop
             else
               log_unhandled_line(state, line, reason: "unexpected line in :plugins state")
             end
@@ -213,6 +217,8 @@ module MuxTf
             case parsed_line[:module]
             when "terraform.ui", "tofu.ui"
               phase = parse_tf_ui_line(parsed_line, meta, parser, phase: phase)
+            when "non-json-log"
+              print_init_line(parsed_line)
             else
               print_init_line(parsed_line, from: "run_tf_init_v2,info,else")
             end
