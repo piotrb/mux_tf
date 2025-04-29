@@ -481,7 +481,7 @@ module MuxTf
               item_handled = true
             end
 
-            if dinfo["severity"] == "error" && dinfo["snippet"]
+            if !item_handled && dinfo["severity"] == "error" && dinfo["snippet"]
               # trying something new .. assuming anything with a snippet is a user error
               remedies << :user_error
               item_handled = true
