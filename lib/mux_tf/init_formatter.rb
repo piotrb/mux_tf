@@ -45,6 +45,7 @@ module MuxTf
           log "!! expected meta[:errors] to be set, how did we get here?" unless meta[:errors]
           meta[:errors]&.each do |error|
             remedies << :add_provider_constraint if error[:body].grep(/Could not retrieve the list of available versions for provider/)
+            remedies << :user_error if error[:body].grep(/Unreadable module directory/)
           end
           if remedies.empty?
             log "!! don't know how to generate init remedies for this"
