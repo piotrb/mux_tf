@@ -40,15 +40,15 @@ require "yaml/store"
 
 module MuxTf
   class UnsafeYamlStore < YAML::Store
-    def initialize( *o )
-      super(*o)
+    def initialize(*args)
+      super
       @opt[:permitted_classes] ||= [Symbol]
     end
 
-    # basically have to override the whole load method, since it doesn't allow customization of the allowed classes .. 
+    # basically have to override the whole load method, since it doesn't allow customization of the allowed classes ..
     def load(content)
       table = YAML.safe_load(content, **@opt)
-      if table == false || table == nil
+      if [false, nil].include?(table)
         {}
       else
         table
@@ -59,7 +59,7 @@ module MuxTf
   class YamlCache
     def initialize(path, default_ttl:)
       @default_ttl = default_ttl
-      @store = UnsafeYamlStore.new path, { aliases: true, permitted_classes: [Symbol, Time] }   
+      @store = UnsafeYamlStore.new path, { aliases: true, permitted_classes: [Symbol, Time] }
     end
 
     def set(key, value, ttl: @default_ttl)

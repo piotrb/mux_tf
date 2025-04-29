@@ -60,7 +60,7 @@ module MuxTf
           transform_paths!(parsed_line, "msg")
           transform_paths!(parsed_line, "prefix")
           parsed_line["msg"].gsub!("#{Dir.getwd}/", "")
-          parsed_line["prefix"]&.strip!&.gsub!(/^\[/, "")&.gsub!(/\]$/, "")
+          parsed_line["prefix"]&.strip!&.gsub!(/^\[/, "")&.gsub!(/\]$/, "") # rubocop:disable Style/SafeNavigationChainLength
           parsed_line["prefix"]&.gsub!(Dir.getwd, "")
           if @operation == :plan
             handle_plan_json(parsed_line)

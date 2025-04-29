@@ -1,8 +1,10 @@
+# frozen_string_literal: true
+
 module MuxTf
   module FormatterCommon
     def tf_cmd_json(cmd_call_proc, &block)
       last_stderr_line = nil
-      handler = proc { |(stream, raw_line)|
+      handler = proc { |(stream, raw_line)| # rubocop:disable Metrics/BlockLength
         case stream
         when :command
           log "Running command: #{raw_line.strip} ...", depth: 2
