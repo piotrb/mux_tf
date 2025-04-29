@@ -258,6 +258,8 @@ module MuxTf
               end
             elsif parsed_line[:message] =~ /^\[reset\]/
               print_unhandled_error_line(parsed_line)
+            elsif parsed_line[:module] == :stderr && parsed_line[:type] == "unknown" && parsed_line[:message][0] == "{"
+              print_tg_error_line(parsed_line)
             else
               print_init_line(parsed_line, from: "run_tf_init_v2,error,else")
             end

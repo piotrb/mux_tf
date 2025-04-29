@@ -25,27 +25,6 @@ module MuxTf
         }, &block)
       end
 
-      def print_tg_error_line(parsed_line)
-        parsed_line[:message].split("\n").each do |line|
-          next if line.strip == ""
-
-          parsed_message = JSON.parse(line)
-          raw_prefix = "[TG ERROR] "
-          prefix = pastel.red(raw_prefix)
-          index = 0
-          lines = parsed_message["msg"].split("\n").map { |l|
-            l = if index.zero?
-                  prefix + l
-                else
-                  (" " * raw_prefix.length) + l
-                end
-            index += 1
-            l
-          }
-          log lines, depth: 1
-        end
-      end
-
       def parse_lock_info(detail)
         # Lock Info:
         #   ID:        4cc9c775-f0b7-3da7-25a4-94131afcef4d
