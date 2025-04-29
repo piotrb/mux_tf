@@ -199,6 +199,15 @@ module MuxTf
             log wrap_log["unprocessed remedies: #{remedies.to_a}", color: :red], depth: 1
             return [false, results]
           end
+          if remedies.delete? :user_error
+            remedy = :user_error
+            log wrap_log["user error encountered!", color: :red]
+            log wrap_log["-" * 40, color: :red]
+            log wrap_log["!! User Error, Please fix the issue and try again", color: :red]
+            log wrap_log["-" * 40, color: :red]
+            results[:user_error] = true
+            return [false, results]
+          end
           if remedies.delete? :init
             remedy = :init
             log wrap_log["Running terraform init ..."], depth: 2
@@ -229,15 +238,6 @@ module MuxTf
               log wrap_log["Failed", color: :red], depth: 2
               return [false, result]
             end
-          end
-          if remedies.delete? :user_error
-            remedy = :user_error
-            log wrap_log["user error encountered!", color: :red]
-            log wrap_log["-" * 40, color: :red]
-            log wrap_log["!! User Error, Please fix the issue and try again", color: :red]
-            log wrap_log["-" * 40, color: :red]
-            results[:user_error] = true
-            return [false, results]
           end
           if remedies.delete? :auth
             remedy = :auth
