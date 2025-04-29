@@ -43,7 +43,7 @@ module MuxTf
           :red
         when "read"
           :cyan
-        when "import" # rubocop:disable Lint/DuplicateBranch
+        when "import", "forget" # rubocop:disable Lint/DuplicateBranch
           :cyan
         else
           :reset
@@ -68,6 +68,8 @@ module MuxTf
           "→"
         when "import-update"
           "↗︎"
+        when "forget"
+          "↺"
         else
           action
         end
@@ -191,6 +193,13 @@ module MuxTf
           parts << {
             type: "resource",
             action: "read",
+            address: v["address"],
+            deps: find_deps(data, v["address"])
+          }
+        when ["forget"]
+          parts << {
+            type: "resource",
+            action: "forget",
             address: v["address"],
             deps: find_deps(data, v["address"])
           }

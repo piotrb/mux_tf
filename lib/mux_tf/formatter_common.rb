@@ -65,6 +65,31 @@ module MuxTf
       status
     end
 
+    def parse_non_json_plan_line(raw_line)
+      result = {}
+
+      if raw_line.match(/^time=(?<timestamp>[^ ]+) level=(?<level>[^ ]+) msg=(?<message>.+?)(?: prefix=\[(?<prefix>.+?)\])?\s*$/)
+        result.merge!($LAST_MATCH_INFO.named_captures.symbolize_keys)
+        result[:module] = "terragrunt"
+        result.delete(:prefix) unless result[:prefix]
+        result[:prefix] = Pathname.new(result[:prefix]).relative_path_from(Dir.getwd).to_s if result[:prefix]
+
+        result[:merge_up] = true if result[:message].match(/^\d+ errors? occurred:$/)
+      elsif raw_line.strip == ""
+        result[:blank] = true
+      else
+        result[:message] = raw_line
+        result[:merge_up] = true
+      end
+
+      # time=2023-08-25T11:44:41-07:00 level=error msg=Terraform invocation failed in /Users/piotr/Work/janepods/.terragrunt-cache/BM86IAj5tW4bZga2lXeYT8tdOKI/V0IEypKSfyl-kHfCnRNAqyX02V8/modules/event-bus prefix=[/Users/piotr/Work/janepods/accounts/eks-dev/admin/apps/kube-system-event-bus]
+      # time=2023-08-25T11:44:41-07:00 level=error msg=1 error occurred:
+      #         * [/Users/piotr/Work/janepods/.terragrunt-cache/BM86IAj5tW4bZga2lXeYT8tdOKI/V0IEypKSfyl-kHfCnRNAqyX02V8/modules/event-bus] exit status 2
+      #
+      #
+      result
+    end
+
     def emit_line_helper(result, &block)
       result[:level] ||= result[:stream] == :stderr ? "error" : "info"
       result[:module] ||= result[:stream]

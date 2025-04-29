@@ -14,15 +14,60 @@ module MuxTf
       class << self
         attr_accessor :plan_command
 
+        def detect_tool_type(tool_cmd: nil)
+          tool_cmd ||= ENV.fetch("MUX_TF_BASE_CMD", "terraform")
+          output = `#{tool_cmd} --version`
+          case output
+          when /^Terraform v(.+)$/
+            {
+              tool_name: "terraform",
+              tool_version: ::Regexp.last_match(1)
+            }
+          when /^OpenTofu v(.+)$/
+            {
+              tool_name: "opentofu",
+              tool_version: ::Regexp.last_match(1)
+            }
+          when /^terragrunt version v(.+)$/
+            result = {
+              tool_wrapper: "terragrunt",
+              tool_wrapper_version: ::Regexp.last_match(1)
+            }
+            tg_tool = ENV.fetch("TG_TF_PATH", "tofu")
+            result.merge! detect_tool_type(tool_cmd: tg_tool)
+            result
+          else
+            raise "can't parse tool version from: #{output.inspect}"
+          end
+        end
+
+        def init_tool_env
+          info = detect_tool_type
+
+          if %w[terraform opentofu].include?(info[:tool_name])
+            ENV["TF_IN_AUTOMATION"] = "1"
+            ENV["TF_INPUT"] = "0"
+          end
+
+          return unless info[:tool_wrapper] == "terragrunt"
+
+          if Gem::Version.new(info[:tool_wrapper_version]) >= Gem::Version.new("0.70.0")
+            # new syntax
+            ENV["TG_LOG_FORMAT"] = "json"
+            ENV["TG_TF_FORWARD_STDOUT"] = "true"
+          else
+            # old syntax
+            ENV["TERRAGRUNT_JSON_LOG"] = "1"
+            ENV["TERRAGRUNT_FORWARD_TF_STDOUT"] = "1"
+          end
+        end
+
         def run(args)
           version_check
 
           self.plan_command = PlanCommand.new
 
-          ENV["TF_IN_AUTOMATION"] = "1"
-          ENV["TF_INPUT"] = "0"
-          ENV["TERRAGRUNT_JSON_LOG"] = "1"
-          ENV["TERRAGRUNT_FORWARD_TF_STDOUT"] = "1"
+          init_tool_env
 
           if args[0] == "cli"
             cmd_loop

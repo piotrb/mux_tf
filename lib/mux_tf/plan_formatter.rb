@@ -18,36 +18,32 @@ module MuxTf
         end
       end
 
-      def parse_non_json_plan_line(raw_line)
-        result = {}
-
-        if raw_line.match(/^time=(?<timestamp>[^ ]+) level=(?<level>[^ ]+) msg=(?<message>.+?)(?: prefix=\[(?<prefix>.+?)\])?\s*$/)
-          result.merge!($LAST_MATCH_INFO.named_captures.symbolize_keys)
-          result[:module] = "terragrunt"
-          result.delete(:prefix) unless result[:prefix]
-          result[:prefix] = Pathname.new(result[:prefix]).relative_path_from(Dir.getwd).to_s if result[:prefix]
-
-          result[:merge_up] = true if result[:message].match(/^\d+ errors? occurred:$/)
-        elsif raw_line.strip == ""
-          result[:blank] = true
-        else
-          result[:message] = raw_line
-          result[:merge_up] = true
-        end
-
-        # time=2023-08-25T11:44:41-07:00 level=error msg=Terraform invocation failed in /Users/piotr/Work/janepods/.terragrunt-cache/BM86IAj5tW4bZga2lXeYT8tdOKI/V0IEypKSfyl-kHfCnRNAqyX02V8/modules/event-bus prefix=[/Users/piotr/Work/janepods/accounts/eks-dev/admin/apps/kube-system-event-bus]
-        # time=2023-08-25T11:44:41-07:00 level=error msg=1 error occurred:
-        #         * [/Users/piotr/Work/janepods/.terragrunt-cache/BM86IAj5tW4bZga2lXeYT8tdOKI/V0IEypKSfyl-kHfCnRNAqyX02V8/modules/event-bus] exit status 2
-        #
-        #
-        result
-      end
-
       def tf_plan_json(out:, targets: [], &block)
         tf_cmd_json(proc { |handler|
           tf_plan(out: out, detailed_exitcode: true, color: true, compact_warnings: false, json: true, input: false,
                   targets: targets, &handler)
         }, &block)
+      end
+
+      def print_tg_error_line(parsed_line)
+        parsed_line[:message].split("\n").each do |line|
+          next if line.strip == ""
+
+          parsed_message = JSON.parse(line)
+          raw_prefix = "[TG ERROR] "
+          prefix = pastel.red(raw_prefix)
+          index = 0
+          lines = parsed_message["msg"].split("\n").map { |l|
+            l = if index.zero?
+                  prefix + l
+                else
+                  (" " * raw_prefix.length) + l
+                end
+            index += 1
+            l
+          }
+          log lines, depth: 1
+        end
       end
 
       def parse_lock_info(detail)
@@ -281,6 +277,10 @@ module MuxTf
                   current_meta_error[:printed] = true
                 end
               end
+            elsif parsed_line[:module] == :stderr && parsed_line[:type] == "unknown" && parsed_line[:message][0] == "{"
+              # probably a TG error line ...
+              # sometimes this could have multiple lines of json ..
+              print_tg_error_line(parsed_line)
             else
               print_plan_line(parsed_line, from: "pretty_plan_v2,error,else")
             end
