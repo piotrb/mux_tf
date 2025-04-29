@@ -205,8 +205,7 @@ module MuxTf
         #   "values"=>[]
         # }
         output << "Code:"
-        output << "in #{snippet['context']}"
-        output << "#{snippet['start_line']}: #{snippet['code']}"
+        output << "in #{snippet['context']}" if snippet["context"]
         line = snippet["start_line"]
         snippet["code"].split("\n").each do |l|
           output << "#{line}: #{l}"
