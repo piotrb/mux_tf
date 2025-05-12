@@ -131,6 +131,8 @@ module MuxTf
           pastel.bright_red(symbol)
         when ">"
           pastel.blue(symbol)
+        when " "
+          symbol
         else
           warning "Unknown symbol: #{symbol.inspect}"
           symbol
@@ -239,32 +241,6 @@ module MuxTf
         format_value_diff(mode, value_arg)
       end
 
-      # def format_value(value_arg, symbol)
-      #   case value_arg
-      #   when Array
-      #     mode = :both
-      #     case symbol
-      #     when "+"
-      #       mode = :right
-      #     when "~"
-      #       mode = :both
-      #     else
-      #       warning "Unknown symbol: #{symbol.inspect}"
-      #     end
-
-      #     format_value_diff(mode, value_arg)
-      #   when Hash
-      #     if value_arg.keys.all? { |k| k.is_a?(Integer) }
-      #       # assuming its a hash notation of array keys changes
-      #       value_arg.keys.sort.map { |k| "[#{k}] #{format_value(value_arg[k], symbol)[0]}" }
-      #     else
-      #       [value_arg.inspect]
-      #     end
-      #   else
-      #     [value_arg.inspect]
-      #   end
-      # end
-
       def get_pretty_action_and_symbol(actions)
         case actions
         when ["delete"]
@@ -282,6 +258,9 @@ module MuxTf
         when ["read"]
           pretty_action = "read"
           symbol = ">"
+        when ["no-op"]
+          pretty_action = "no-op"
+          symbol = " "
         else
           warning "Unknown action: #{actions.inspect}"
           pretty_action = actions.inspect
@@ -325,8 +304,6 @@ module MuxTf
         diff = tf_show_json_resource_diff(resource)
         max_diff_key_length = diff.map { |change| change[1].length }.max
 
-        # p resource["change"]["replace_paths"] if resource["change"]["replace_paths"]
-
         fields_which_caused_replacement = []
 
         if resource["change"]["replace_paths"]
@@ -353,19 +330,124 @@ module MuxTf
                       end
           end
         end
-        # max_diff_key_length = diff.keys.map(&:length).max
-        # diff.each do |key, value|
-        #   prefix = format("#{global_indent}  #{colorize_symbol(symbol)} %s = ", key.ljust(max_diff_key_length))
-        #   blank_prefix = " " * pastel.strip(prefix).length
-        #   format_value(value, symbol).each_with_index do |line, index|
-        #     output << if index.zero?
-        #                 "#{prefix}#{line}"
-        #               else
-        #                 "#{blank_prefix}#{line}"
-        #               end
-        #   end
-        # end
         output << "#{global_indent}}"
+
+        output.join("\n")
+      end
+
+      def format_output_value_diff(mode, value_arg)
+        case mode
+        when :both
+          vleft = in_display_representation(value_arg[0])
+          vright = in_display_representation(value_arg[1])
+          if [vleft, vright].any? { |v| v.is_a?(String) && v.include?("\n") }
+            if pastel.strip(vright) == KNOWN_AFTER_APPLY
+              "#{vleft} -> #{vright}".split("\n")
+            else
+              string_diff(pastel.strip(vleft), pastel.strip(vright))
+            end
+          else
+            "#{vleft} -> #{vright}".split("\n")
+          end
+        when :right
+          vright = in_display_representation(value_arg[1])
+          vright.split("\n")
+        when :left, :first
+          vleft = in_display_representation(value_arg[0])
+          vleft.split("\n")
+        end
+      end
+
+      def get_x_type(key, change)
+        return :hash if change[key].is_a?(Hash) || change["#{key}_sensitive"].is_a?(Hash) || change["#{key}_unknown"].is_a?(Hash)
+        return :array if change[key].is_a?(Array) || change["#{key}_sensitive"].is_a?(Array) || change["#{key}_unknown"].is_a?(Array)
+
+        :scalar
+      end
+
+      def get_value_type(change)
+        case change["actions"]
+        when ["create"]
+          get_x_type("after", change)
+        when ["delete"]
+          get_x_type("before", change)
+        when ["update"]
+          bt = get_x_type("before", change)
+          at = get_x_type("after", change)
+          raise "Type mismatch before vs after: #{bt} != #{at}" if bt != at
+
+          at
+        when ["no-op"]
+          :none
+        else
+          raise "Unknown action: #{change['actions'].inspect}"
+        end
+      end
+
+      def prep_before_after(change)
+        before = change["before"]
+        after = change["after"]
+        before = KNOWN_AFTER_APPLY if change["before_unknown"]
+        before = SENSITIVE if change["before_sensitive"]
+        after = KNOWN_AFTER_APPLY if change["after_unknown"]
+        after = SENSITIVE if change["after_sensitive"]
+
+        [before, after]
+      end
+
+      def tf_show_json_output(output_key, output_change, max_outer_key_length)
+        _pretty_action, symbol = get_pretty_action_and_symbol(output_change["actions"])
+
+        output = []
+
+        global_indent = " " * 2
+
+        value_type = get_value_type(output_change)
+
+        start_prefix = format("#{global_indent}#{colorize_symbol(symbol)} %s = ", output_key.ljust(max_outer_key_length))
+        blank_start_prefix = " " * pastel.strip(start_prefix).length
+        outer_mode = :both
+        outer_mode = :right if ["+"].include?(symbol)
+        outer_mode = :left if ["-"].include?(symbol)
+        outer_mode = :right if [" "].include?(symbol)
+
+        case value_type
+        when :hash
+          output << "#{start_prefix}{"
+
+          fake_resource = {
+            "change" => output_change
+          }
+          diff = tf_show_json_resource_diff(fake_resource)
+          max_diff_key_length = diff.map { |change| change[1].length }.max
+
+          diff.each do |change|
+            change_symbol, key, *_values = change
+            prefix = format("#{global_indent}    #{colorize_symbol(change_symbol)} %s = ", key.ljust(max_diff_key_length))
+            suffix = ""
+            blank_prefix = " " * pastel.strip(prefix).length
+            format_value(change).each_with_index do |line, index|
+              output << if index.zero?
+                          "#{prefix}#{line}#{suffix}"
+                        else
+                          "#{blank_prefix}#{line}#{suffix}"
+                        end
+            end
+          end
+
+          output << "#{global_indent}  }"
+        when :array, :scalar, :none
+          before, after = prep_before_after(output_change)
+          format_value_diff(outer_mode, [before, after]).each_with_index do |line, index|
+            output << if index.zero?
+                        "#{start_prefix}#{line}"
+                      else
+                        "#{blank_start_prefix}#{line}"
+                      end
+          end
+        else
+          raise "Unknown value type: #{value_type.inspect}"
+        end
 
         output.join("\n")
       end
@@ -418,6 +500,15 @@ module MuxTf
             next if resource["change"]["actions"] == ["no-op"]
 
             output << tf_show_json_resource(resource)
+          end
+        end
+
+        if data["output_changes"]
+          output << ""
+          output << "Changes to Outputs:"
+          max_outer_key_length = data["output_changes"].keys.map(&:length).max || 0
+          data["output_changes"].each do |key, output_change|
+            output << tf_show_json_output(key, output_change, max_outer_key_length)
           end
         end
 

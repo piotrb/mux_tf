@@ -198,7 +198,9 @@ module MuxTf
           end
 
         when "output"
-          false
+        when "outputs"
+          # json plan output summary
+          false # handled when reading the plan json
         else
           print_plan_line(parsed_line, from: "parse_tf_ui_line,else")
         end
