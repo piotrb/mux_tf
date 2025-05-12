@@ -503,11 +503,13 @@ module MuxTf
           end
         end
 
-        if data["output_changes"]
+        actual_output_changes = (data["output_changes"] || []).reject { |_, change| change["actions"] == ["no-op"] }
+
+        if actual_output_changes.length.positive?
           output << ""
           output << "Changes to Outputs:"
-          max_outer_key_length = data["output_changes"].keys.map(&:length).max || 0
-          data["output_changes"].each do |key, output_change|
+          max_outer_key_length = actual_output_changes.keys.map(&:length).max || 0
+          actual_output_changes.each do |key, output_change|
             output << tf_show_json_output(key, output_change, max_outer_key_length)
           end
         end
