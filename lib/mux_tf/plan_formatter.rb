@@ -114,8 +114,7 @@ module MuxTf
           # }
           # noop
         when "resource_drift"
-          first_in_group = !seen.call(parsed_line[:module], "resource_drift") &&
-                           !seen.call(parsed_line[:module], "planned_change")
+          first_in_group = !seen.call(parsed_line[:module], "resource_drift")
           # {
           #   :change=>{
           #     "resource"=>{"addr"=>"module.application.kubectl_manifest.application", "module"=>"module.application", "resource"=>"kubectl_manifest.application", "implied_provider"=>"kubectl", "resource_type"=>"kubectl_manifest", "resource_name"=>"application", "resource_key"=>nil},
@@ -125,7 +124,7 @@ module MuxTf
           if first_in_group
             log ""
             log ""
-            log "Planned Changes:"
+            log "Detected Drift:"
           end
           # {
           #   :change=>{
@@ -148,8 +147,7 @@ module MuxTf
           if skip_plan_summary
             log "" if first_in_group
           else
-            first_in_group = !seen.call(parsed_line[:module], "resource_drift") &&
-                             !seen.call(parsed_line[:module], "planned_change")
+            first_in_group = !seen.call(parsed_line[:module], "planned_change")
             # {
             #  :change=>
             #   {"resource"=>
