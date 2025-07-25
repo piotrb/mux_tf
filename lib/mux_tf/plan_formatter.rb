@@ -195,8 +195,7 @@ module MuxTf
             }.compact.join(" ")
           end
 
-        when "output"
-        when "outputs"
+        when "output", "outputs"
           # json plan output summary
           false # handled when reading the plan json
         else
