@@ -21,7 +21,7 @@ jobs:
         role-to-assume: ${{secrets.RUBYGEMS_ROLE_TO_ASSUME}}
 
     - name: Checkout code
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Set up Ruby
       uses: ruby/setup-ruby@v1
